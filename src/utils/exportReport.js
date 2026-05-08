@@ -1,0 +1,295 @@
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
+import amiriBase64 from '../assets/fonts/Amiri-base64';
+import { getLogoBase64 } from './logoBase64';
+
+/**
+ * Register the Amiri font with jsPDF for Urdu/Arabic text rendering
+ * Amiri is a high-quality Naskh font that jsPDF can render correctly
+ * (Nastaliq fonts require complex OpenType shaping that jsPDF doesn't support)
+ */
+function registerUrduFont(doc) {
+  doc.addFileToVFS('Amiri-Regular.ttf', amiriBase64);
+  doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
+}
+
+/**
+ * Check if text contains Arabic/Urdu characters
+ */
+function hasUrdu(text) {
+  if (!text || typeof text !== 'string') return false;
+  return /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text);
+}
+
+/**
+ * Generate a unique short ID for file names (6 chars)
+ */
+function uniqueId() {
+  return Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+}
+
+/**
+ * Get cell text from jspdf-autotable cell data
+ * Works for both head and body sections
+ */
+function getCellText(data) {
+  // data.cell.text is always an array of strings in jspdf-autotable
+  if (data.cell.text && Array.isArray(data.cell.text)) {
+    return data.cell.text.join(' ');
+  }
+  // Fallback to raw value
+  return String(data.cell.raw ?? '');
+}
+
+/**
+ * Export report data to PDF with professional formatting
+ * Supports bilingual LTR (English) + RTL (Urdu) with embedded Noto Nastaliq Urdu font
+ */
+export async function exportToPDF({ title, titleUrdu, columns, rows, summary, dateRange, fileName }) {
+  const doc = new jsPDF({ orientation: rows[0]?.length > 6 ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
+  registerUrduFont(doc);
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  // ── Header ──
+  doc.setFillColor(6, 6, 8);
+  doc.rect(0, 0, pageWidth, 32, 'F');
+
+  // Logo in header
+  try {
+    const logoDataUrl = await getLogoBase64(160);
+    if (logoDataUrl) {
+      doc.addImage(logoDataUrl, 'PNG', 4, 2, 28, 28);
+    }
+  } catch (e) { /* logo unavailable, continue without it */ }
+
+  const textStartX = 34; // offset text to the right of logo
+
+  // Title (English)
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(255, 255, 255);
+  // Extract only English part of title (before the dash with Urdu)
+  const titleParts = title.split('—');
+  const englishTitle = titleParts[0].trim();
+  doc.text(englishTitle, textStartX, 13);
+
+  // Urdu title (RTL)
+  if (titleParts[1] && hasUrdu(titleParts[1])) {
+    doc.setFont('Amiri', 'normal');
+    doc.setFontSize(14);
+    doc.setTextColor(180, 200, 220);
+    doc.text(titleParts[1].trim(), pageWidth - 14, 13, { align: 'right' });
+  }
+
+  // Subtitle
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(148, 163, 184);
+  doc.text('Rana Traders — Commission Shop', textStartX, 22);
+
+  // Urdu branding
+  doc.setFont('Amiri', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(148, 163, 184);
+  doc.text('رانا ٹریڈرز', pageWidth - 14, 22, { align: 'right' });
+
+  // Date range (top right)
+  if (dateRange) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(200, 200, 200);
+    doc.text(dateRange, pageWidth - 14, 28, { align: 'right' });
+  }
+
+  // Generated timestamp
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Generated: ${new Date().toLocaleString('en-PK')}`, textStartX, 28);
+
+  let yPos = 38;
+
+  // ── Summary cards ──
+  if (summary && summary.length > 0) {
+    const cardWidth = (pageWidth - 28 - (summary.length - 1) * 6) / summary.length;
+    summary.forEach((item, i) => {
+      const x = 14 + i * (cardWidth + 6);
+      doc.setFillColor(20, 20, 24);
+      doc.roundedRect(x, yPos, cardWidth, 18, 2, 2, 'F');
+      // Label - check if it contains Urdu
+      if (hasUrdu(item.label)) {
+        doc.setFont('Amiri', 'normal');
+      } else {
+        doc.setFont('helvetica', 'normal');
+      }
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text(item.label, x + 4, yPos + 6);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(241, 245, 249);
+      doc.text(item.value, x + 4, yPos + 14);
+    });
+    yPos += 26;
+  }
+
+  // ── Pre-scan columns to find which ones have Urdu headers ──
+  const urduColumnIndices = new Set();
+  columns.forEach((col, i) => {
+    if (hasUrdu(col)) urduColumnIndices.add(i);
+  });
+
+  // ── Data Table ──
+  if (rows.length > 0) {
+    autoTable(doc, {
+      startY: yPos,
+      head: [columns],
+      body: rows,
+      styles: {
+        fontSize: 8,
+        cellPadding: 3,
+        lineColor: [30, 41, 59],
+        lineWidth: 0.1,
+        textColor: [71, 85, 105],
+        font: 'helvetica',
+        overflow: 'linebreak',
+      },
+      headStyles: {
+        fillColor: [12, 12, 16],
+        textColor: [148, 163, 184],
+        fontSize: 7.5,
+        fontStyle: 'bold',
+        cellPadding: 4,
+        halign: 'left',
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252],
+      },
+      columnStyles: generateColumnStyles(columns, rows),
+      margin: { left: 14, right: 14 },
+      didParseCell: (data) => {
+        const cellText = getCellText(data);
+
+        if (data.section === 'head') {
+          // For header cells: if the column heading contains Urdu, use Urdu font
+          if (hasUrdu(cellText)) {
+            data.cell.styles.font = 'Amiri';
+            data.cell.styles.fontStyle = 'normal';
+            data.cell.styles.fontSize = 9;
+          }
+        } else if (data.section === 'body') {
+          // For body cells: check if cell content contains Urdu
+          if (hasUrdu(cellText)) {
+            data.cell.styles.font = 'Amiri';
+            data.cell.styles.fontSize = 9;
+          }
+        }
+      },
+      didDrawPage: () => {
+        // Footer on each page
+        doc.setFillColor(248, 250, 252);
+        doc.rect(0, pageHeight - 10, pageWidth, 10, 'F');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(148, 163, 184);
+        doc.text('Rana Traders', 14, pageHeight - 4);
+        doc.setFont('Amiri', 'normal');
+        doc.text('رانا ٹریڈرز', 40, pageHeight - 4);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Page ${doc.internal.getNumberOfPages()}`, pageWidth - 14, pageHeight - 4, { align: 'right' });
+      },
+    });
+  }
+
+  // Add unique ID to filename to prevent overwrite prompts
+  const baseName = fileName ? fileName.replace(/\.pdf$/i, '') : 'report';
+  doc.save(`${baseName}_${uniqueId()}.pdf`);
+}
+
+/**
+ * Auto-detect which columns contain numbers and right-align them
+ */
+function generateColumnStyles(columns, rows) {
+  const styles = {};
+  if (rows.length === 0) return styles;
+  columns.forEach((col, i) => {
+    const colLower = col.toLowerCase();
+    const isAmount = colLower.includes('amount') || colLower.includes('total') || colLower.includes('balance') ||
+      colLower.includes('paid') || colLower.includes('sale') || colLower.includes('purchase') ||
+      colLower.includes('commission') || colLower.includes('rate') || colLower.includes('stock') ||
+      colLower.includes('purchased') || colLower.includes('sold') || colLower.includes('opening');
+    if (isAmount) {
+      styles[i] = { halign: 'right', fontStyle: 'bold' };
+    }
+  });
+  return styles;
+}
+
+/**
+ * Export report data to XLSX (Excel) with professional formatting
+ */
+export function exportToXLSX({ title, columns, rows, summary, dateRange, fileName }) {
+  const wb = XLSX.utils.book_new();
+  const wsData = [];
+
+  // Title row
+  wsData.push([title]);
+  if (dateRange) wsData.push([dateRange]);
+  wsData.push([]);
+
+  // Summary
+  if (summary && summary.length > 0) {
+    summary.forEach(item => wsData.push([item.label, item.value]));
+    wsData.push([]);
+  }
+
+  // Column headers
+  wsData.push(columns);
+
+  // Data rows
+  rows.forEach(row => wsData.push(row));
+
+  if (rows.length > 0) {
+    wsData.push([]);
+    wsData.push([`Total Rows: ${rows.length}`]);
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // Auto-size columns
+  const colWidths = columns.map((col, i) => {
+    let maxLen = col.length;
+    rows.forEach(row => {
+      const cellLen = String(row[i] ?? '').length;
+      if (cellLen > maxLen) maxLen = cellLen;
+    });
+    return { wch: Math.min(Math.max(maxLen + 2, 10), 35) };
+  });
+  ws['!cols'] = colWidths;
+
+  // Merge title cell
+  if (columns.length > 1) {
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: columns.length - 1 } }];
+  }
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Report');
+  // Add unique ID to filename
+  const baseName = fileName ? fileName.replace(/\.xlsx$/i, '') : 'report';
+  XLSX.writeFile(wb, `${baseName}_${uniqueId()}.xlsx`);
+}
+
+/**
+ * Export report data to CSV
+ */
+export function exportToCSV({ columns, rows, fileName }) {
+  const wb = XLSX.utils.book_new();
+  const wsData = [columns, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  XLSX.utils.book_append_sheet(wb, ws, 'Report');
+  // Add unique ID to filename
+  const baseName = fileName ? fileName.replace(/\.csv$/i, '') : 'report';
+  XLSX.writeFile(wb, `${baseName}_${uniqueId()}.csv`, { bookType: 'csv' });
+}

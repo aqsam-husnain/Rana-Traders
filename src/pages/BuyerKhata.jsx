@@ -1,0 +1,403 @@
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { MdArrowBack, MdAdd, MdDelete, MdPayment, MdPointOfSale, MdPerson, MdPhone, MdBadge, MdLocationOn } from 'react-icons/md';
+import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
+import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
+import ExportDropdown from '../components/ExportDropdown';
+import Modal from '../components/Modal';
+
+export default function BuyerKhata() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [buyer, setBuyer] = useState(null);
+  const [ledger, setLedger] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Payment form
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [payForm, setPayForm] = useState({ date: todayISO(), amount: '', type: 'Received', mode: 'Cash', reference: '', notes: '' });
+
+  // Sale form
+  const [showSaleForm, setShowSaleForm] = useState(false);
+  const [products, setProducts] = useState([]);
+  const [units, setUnits] = useState([]);
+  const [availableStock, setAvailableStock] = useState(null);
+  const [stockError, setStockError] = useState('');
+  const [commissionMode, setCommissionMode] = useState('default');
+  const [customPercent, setCustomPercent] = useState('');
+  const [saleForm, setSaleForm] = useState({
+    product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0,
+    bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '',
+    amount_paid: 0, payment_status: 'To Receive'
+  });
+
+  useEffect(() => { loadAll(); }, [id]);
+
+  const loadAll = async () => {
+    setLoading(true);
+    const b = await window.api.getBuyer(parseInt(id));
+    setBuyer(b);
+    const l = await window.api.getBuyerLedger(parseInt(id));
+    setLedger(l);
+    setProducts(await window.api.getProducts());
+    setUnits(await window.api.getUnits());
+    setLoading(false);
+  };
+
+  // ─── Ledger balance calculation ───
+  const openingBalance = buyer?.opening_balance || 0;
+  let runningBalance = openingBalance;
+  const entries = ledger?.entries || [];
+
+  // ─── Payment handlers ───
+  const openPaymentForm = () => {
+    setPayForm({ date: todayISO(), amount: '', type: 'Received', mode: 'Cash', reference: '', notes: '' });
+    setShowPaymentForm(true);
+  };
+
+  const handlePaymentSave = async (e) => {
+    e.preventDefault();
+    await window.api.addPayment({
+      party_type: 'Buyer', party_id: parseInt(id), date: payForm.date,
+      amount: parseFloat(payForm.amount), type: payForm.type,
+      mode: payForm.mode, reference: payForm.reference, notes: payForm.notes
+    });
+    setShowPaymentForm(false);
+    loadAll();
+  };
+
+  // ─── Sale handlers ───
+  const saleTotal = (parseFloat(saleForm.quantity) || 0) * (parseFloat(saleForm.rate) || 0);
+  const saleNet = saleTotal - (parseFloat(saleForm.commission) || 0) - (parseFloat(saleForm.bardana) || 0) - (parseFloat(saleForm.labour) || 0);
+
+  const getDefaultPercent = (pid) => { const p = products.find(x => x.id === parseInt(pid || saleForm.product_id)); return p ? p.commission_rate : 0; };
+  const calcCommission = (qty, rate, percent) => ((parseFloat(qty) || 0) * (parseFloat(rate) || 0) * (parseFloat(percent) || 0) / 100).toFixed(2);
+  const recalcCommission = (qty, rate, pid) => calcCommission(qty, rate, getDefaultPercent(pid));
+
+  const checkStock = async (productId) => {
+    if (!productId) { setAvailableStock(null); setStockError(''); return; }
+    const stock = await window.api.getProductStock(parseInt(productId));
+    setAvailableStock(stock);
+    if (stock <= 0) setStockError('Out of stock! Available: 0');
+    else setStockError('');
+  };
+
+  const validateQuantity = (qty) => {
+    const q = parseFloat(qty) || 0;
+    if (availableStock !== null && q > availableStock) setStockError(`Not enough stock! Available: ${formatNumber(availableStock)}`);
+    else if (availableStock !== null && availableStock <= 0) setStockError('Out of stock! Available: 0');
+    else setStockError('');
+  };
+
+  const openSaleForm = () => {
+    setCommissionMode('default'); setCustomPercent('');
+    setSaleForm({ product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '', amount_paid: 0, payment_status: 'To Receive' });
+    setAvailableStock(null); setStockError('');
+    setShowSaleForm(true);
+  };
+
+  const updatePaymentStatus = (amtPaid) => {
+    const paid = parseFloat(amtPaid) || 0;
+    if (paid <= 0) return 'To Receive';
+    if (paid >= saleNet) return 'Received';
+    return 'Partial';
+  };
+
+  const handleProductChange = (pid) => {
+    const p = products.find(x => x.id === parseInt(pid));
+    let newCommission = commissionMode === 'default' ? recalcCommission(saleForm.quantity, saleForm.rate, pid) : calcCommission(saleForm.quantity, saleForm.rate, customPercent);
+    setSaleForm({ ...saleForm, product_id: pid, unit: p ? p.unit : '', commission: newCommission });
+    checkStock(pid);
+  };
+
+  const handleSaleSave = async (e) => {
+    e.preventDefault();
+    const qty = parseFloat(saleForm.quantity) || 0;
+    if (!saleForm.product_id) return alert('Please select a product');
+    if (qty <= 0) return alert('Quantity must be greater than 0');
+    const currentStock = await window.api.getProductStock(parseInt(saleForm.product_id));
+    if (currentStock <= 0) return alert('Cannot save sale — this product is out of stock!');
+    if (qty > currentStock) return alert(`Cannot save — not enough stock!\nAvailable: ${formatNumber(currentStock)}\nRequested: ${formatNumber(qty)}`);
+
+    const amountPaid = parseFloat(saleForm.amount_paid) || 0;
+    const paymentStatus = updatePaymentStatus(amountPaid);
+
+    await window.api.addSale({
+      buyer_id: parseInt(id), product_id: parseInt(saleForm.product_id), date: saleForm.date,
+      quantity: qty, rate: parseFloat(saleForm.rate), total: saleTotal,
+      commission: parseFloat(saleForm.commission) || 0, bardana: parseFloat(saleForm.bardana) || 0,
+      labour: parseFloat(saleForm.labour) || 0, net_amount: saleNet,
+      payment_mode: saleForm.payment_mode, notes: saleForm.notes,
+      amount_paid: amountPaid, payment_status: paymentStatus,
+      unit: saleForm.unit || null, commission_type: commissionMode
+    });
+    setShowSaleForm(false);
+    loadAll();
+  };
+
+  const handleDeletePayment = async (paymentId) => {
+    if (confirm('Delete this payment entry?')) {
+      await window.api.deletePayment(paymentId);
+      loadAll();
+    }
+  };
+
+  const handleDeleteSale = async (saleId) => {
+    if (confirm('Delete this sale entry?')) {
+      await window.api.deleteSale(saleId);
+      loadAll();
+    }
+  };
+
+  // ─── Export ───
+  const handleExport = (format) => {
+    if (!entries.length) return;
+    let bal = openingBalance;
+    const columns = ['#', 'Date', 'Type', 'Product', 'Qty', 'Rate', 'Debit', 'Credit', 'Balance'];
+    const rows = [['', '', '', '', '', '', '', '', formatPKR(openingBalance)]];
+    entries.forEach((e, i) => {
+      bal += (e.debit || 0) - (e.credit || 0);
+      rows.push([i + 1, formatDate(e.date), e.type, e.product_name || '—', e.quantity || '—', e.rate ? formatPKR(e.rate) : '—', e.debit ? formatPKR(e.debit) : '—', e.credit ? formatPKR(e.credit) : '—', formatPKR(bal)]);
+    });
+    const totalDebit = entries.reduce((s, e) => s + (e.debit || 0), 0);
+    const totalCredit = entries.reduce((s, e) => s + (e.credit || 0), 0);
+    const summary = [{ label: 'Buyer', value: buyer?.name || '' }, { label: 'Total Debit', value: formatPKR(totalDebit) }, { label: 'Total Credit', value: formatPKR(totalCredit) }, { label: 'Final Balance', value: formatPKR(bal) }];
+    const exportData = { title: `Buyer Khata — ${buyer?.name} — کھاتا`, columns, rows, summary, dateRange: '' };
+    const safeName = (buyer?.name || 'Buyer').replace(/\s+/g, '_');
+    if (format === 'pdf') exportToPDF({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.pdf` });
+    else if (format === 'xlsx') exportToXLSX({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.xlsx` });
+    else if (format === 'csv') exportToCSV({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.csv` });
+  };
+
+  if (loading) return <div className="empty-state"><p>Loading...</p></div>;
+  if (!buyer) return <div className="empty-state"><p>Buyer not found</p></div>;
+
+  // Calculate final balance for summary
+  let finalBalance = openingBalance;
+  entries.forEach(e => { finalBalance += (e.debit || 0) - (e.credit || 0); });
+  const totalDebit = entries.reduce((s, e) => s + (e.debit || 0), 0);
+  const totalCredit = entries.reduce((s, e) => s + (e.credit || 0), 0);
+
+  return (
+    <div className="fade-in">
+      {/* Header */}
+      <div className="page-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button className="btn btn-sm btn-secondary" onClick={() => navigate('/buyers')} title="Back to Buyers"><MdArrowBack /></button>
+          <div>
+            <h2 style={{ marginBottom: 2 }}>{buyer.name} {buyer.name_urdu ? <span className="urdu" style={{ fontSize: '0.9em', color: 'var(--text-muted)' }}>({buyer.name_urdu})</span> : ''}</h2>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Buyer Khata / Ledger — خریدار کھاتا</span>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <ExportDropdown onExport={handleExport} disabled={entries.length === 0} />
+          <button className="btn btn-primary" onClick={openPaymentForm}><MdPayment style={{ marginRight: 4 }} /> Add Payment</button>
+          <button className="btn btn-primary" style={{ background: 'var(--green)' }} onClick={openSaleForm}><MdPointOfSale style={{ marginRight: 4 }} /> New Sale</button>
+        </div>
+      </div>
+
+      {/* Buyer Info + Summary Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <div className="card" style={{ padding: '14px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <MdPerson style={{ color: 'var(--accent)', fontSize: '1.2rem' }} />
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Contact</span>
+          </div>
+          <div style={{ fontSize: '0.85rem', lineHeight: 1.8 }}>
+            {buyer.phone && <div><MdPhone style={{ verticalAlign: 'middle', marginRight: 4, fontSize: '0.9rem', color: 'var(--text-muted)' }} />{buyer.phone}</div>}
+            {buyer.cnic && <div><MdBadge style={{ verticalAlign: 'middle', marginRight: 4, fontSize: '0.9rem', color: 'var(--text-muted)' }} />{buyer.cnic}</div>}
+            {buyer.address && <div><MdLocationOn style={{ verticalAlign: 'middle', marginRight: 4, fontSize: '0.9rem', color: 'var(--text-muted)' }} />{buyer.address}</div>}
+            {!buyer.phone && !buyer.cnic && !buyer.address && <span style={{ color: 'var(--text-muted)' }}>No contact info</span>}
+          </div>
+        </div>
+        <div className="stat-card" style={{ animationDelay: '0s' }}>
+          <div className="stat-icon amber"><MdPointOfSale /></div>
+          <div className="stat-info"><h3>Opening Balance</h3><div className="stat-value">{formatPKR(openingBalance)}</div></div>
+        </div>
+        <div className="stat-card" style={{ animationDelay: '0.06s' }}>
+          <div className="stat-icon red"><MdPointOfSale /></div>
+          <div className="stat-info"><h3>Total Sales (Debit)</h3><div className="stat-value">{formatPKR(totalDebit)}</div></div>
+        </div>
+        <div className="stat-card" style={{ animationDelay: '0.12s' }}>
+          <div className="stat-icon green"><MdPayment /></div>
+          <div className="stat-info"><h3>Total Paid (Credit)</h3><div className="stat-value">{formatPKR(totalCredit)}</div></div>
+        </div>
+        <div className="stat-card" style={{ animationDelay: '0.18s' }}>
+          <div className={`stat-icon ${finalBalance > 0 ? 'red' : 'green'}`}><MdPayment /></div>
+          <div className="stat-info"><h3>Current Balance</h3><div className="stat-value" style={{ color: finalBalance > 0 ? 'var(--red)' : 'var(--green)' }}>{formatPKR(finalBalance)}</div></div>
+        </div>
+      </div>
+
+      {/* Ledger Table */}
+      <div className="card" style={{ padding: 0 }}>
+        <div style={{ padding: '16px 20px 8px', borderBottom: '1px solid var(--border)' }}>
+          <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Khata / Ledger — <span className="urdu">کھاتا</span></h3>
+        </div>
+        <div className="data-table-wrapper" style={{ border: 'none' }}>
+          <table className="data-table">
+            <thead><tr><th>#</th><th>Date</th><th>Type</th><th>Product</th><th>Qty</th><th>Rate</th><th>Debit</th><th>Credit</th><th>Balance</th><th></th></tr></thead>
+            <tbody>
+              <tr style={{ background: 'var(--glass)' }}><td></td><td colSpan={5}><strong>Opening Balance — ابتدائی بیلنس</strong></td><td></td><td></td><td className="amount" style={{ fontWeight: 700 }}>{formatPKR(openingBalance)}</td><td></td></tr>
+              {(() => { let bal = openingBalance; return entries.map((e, i) => {
+                bal += (e.debit || 0) - (e.credit || 0);
+                return (
+                  <tr key={i}>
+                    <td>{i + 1}</td>
+                    <td>{formatDate(e.date)}</td>
+                    <td><span className={`badge ${e.type === 'Sale' ? 'badge-regular' : 'badge-active'}`}>{e.type}</span></td>
+                    <td>{e.product_name || '—'}{e.product_name_urdu ? <><br/><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.product_name_urdu}</span></> : ''}</td>
+                    <td>{e.quantity || '—'}</td>
+                    <td>{e.rate ? formatPKR(e.rate) : '—'}</td>
+                    <td className="amount positive">{e.debit ? formatPKR(e.debit) : '—'}</td>
+                    <td className="amount negative">{e.credit ? formatPKR(e.credit) : '—'}</td>
+                    <td className="amount" style={{ fontWeight: 700 }}>{formatPKR(bal)}</td>
+                    <td>
+                      {e.type === 'Payment' && e.payment_id ? <button className="btn btn-sm btn-danger" onClick={() => handleDeletePayment(e.payment_id)} title="Delete Payment"><MdDelete /></button> : ''}
+                      {e.type === 'Sale' && e.sale_id ? <button className="btn btn-sm btn-danger" onClick={() => handleDeleteSale(e.sale_id)} title="Delete Sale"><MdDelete /></button> : ''}
+                    </td>
+                  </tr>
+                );
+              }); })()}
+              {entries.length === 0 && <tr><td colSpan={10} className="text-center" style={{ padding: 40, color: 'var(--text-muted)' }}>No entries yet — ابھی تک کوئی اندراج نہیں</td></tr>}
+              {entries.length > 0 && (
+                <tr style={{ background: 'var(--glass)', fontWeight: 700 }}>
+                  <td></td><td colSpan={5}><strong>Closing Balance — حتمی بیلنس</strong></td>
+                  <td className="amount positive">{formatPKR(totalDebit)}</td>
+                  <td className="amount negative">{formatPKR(totalCredit)}</td>
+                  <td className="amount" style={{ fontWeight: 800, fontSize: '1rem', color: finalBalance > 0 ? 'var(--red)' : 'var(--green)' }}>{formatPKR(finalBalance)}</td>
+                  <td></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Payment Modal */}
+      <Modal show={showPaymentForm} onClose={() => setShowPaymentForm(false)} title={<>Add Payment — <span className="urdu">ادائیگی</span></>}>
+        <form onSubmit={handlePaymentSave}>
+          <div className="form-grid">
+            <div className="form-group"><label>Date & Time</label><input type="datetime-local" required value={payForm.date} onChange={e => setPayForm({ ...payForm, date: e.target.value })} /></div>
+            <div className="form-group"><label>Amount (PKR)</label><input type="number" step="0.01" required value={payForm.amount} onChange={e => setPayForm({ ...payForm, amount: e.target.value })} /></div>
+            <div className="form-group"><label>Type</label><select value={payForm.type} onChange={e => setPayForm({ ...payForm, type: e.target.value })}><option>Received</option><option>Paid</option></select></div>
+            <div className="form-group"><label>Mode</label><select value={payForm.mode} onChange={e => setPayForm({ ...payForm, mode: e.target.value })}><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select></div>
+            <div className="form-group"><label>Reference / Cheque #</label><input value={payForm.reference} onChange={e => setPayForm({ ...payForm, reference: e.target.value })} /></div>
+            <div className="form-group"><label>Notes</label><input value={payForm.notes} onChange={e => setPayForm({ ...payForm, notes: e.target.value })} /></div>
+          </div>
+          <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => setShowPaymentForm(false)}>Cancel</button><button type="submit" className="btn btn-primary">Save Payment</button></div>
+        </form>
+      </Modal>
+
+      {/* Sale Modal */}
+      <Modal show={showSaleForm} onClose={() => setShowSaleForm(false)} title={<>New Sale to {buyer.name} — <span className="urdu">نئی فروخت</span></>} large>
+        <form onSubmit={handleSaleSave}>
+          <div className="form-grid">
+            <div className="form-group"><label>Date & Time</label><input type="datetime-local" required value={saleForm.date} onChange={e => setSaleForm({ ...saleForm, date: e.target.value })} /></div>
+            <div className="form-group">
+              <label>Product — جنس</label>
+              <select required value={saleForm.product_id} onChange={e => handleProductChange(e.target.value)}>
+                <option value="">Select Product</option>
+                {products.filter(p => p.status === 'Active').map(p => <option key={p.id} value={p.id}>{p.name} — {p.name_urdu}</option>)}
+              </select>
+              {availableStock !== null && <div style={{ fontSize: '0.78rem', fontWeight: 600, marginTop: 4, color: availableStock > 0 ? 'var(--green)' : 'var(--red)' }}>Available: {formatNumber(availableStock)}</div>}
+            </div>
+            <div className="form-group">
+              <label>Unit — اکائی</label>
+              <select value={saleForm.unit} onChange={e => setSaleForm({ ...saleForm, unit: e.target.value })}>
+                {units.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Quantity — مقدار</label>
+              <input type="number" step="0.01" required value={saleForm.quantity}
+                onChange={e => { const q = e.target.value; validateQuantity(q); const comm = commissionMode === 'default' ? recalcCommission(q, saleForm.rate) : calcCommission(q, saleForm.rate, customPercent); setSaleForm({ ...saleForm, quantity: q, commission: comm }); }}
+                style={stockError ? { borderColor: 'var(--red)', boxShadow: '0 0 0 3px var(--red-glow)' } : {}} />
+              {stockError && <div style={{ fontSize: '0.75rem', color: 'var(--red)', fontWeight: 600, marginTop: 4 }}>{stockError}</div>}
+            </div>
+            <div className="form-group"><label>Rate (PKR) — نرخ</label><input type="number" step="0.01" required value={saleForm.rate} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(saleForm.quantity, r) : calcCommission(saleForm.quantity, r, customPercent); setSaleForm({ ...saleForm, rate: r, commission: comm }); }} /></div>
+            <div className="form-group">
+              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>Commission — آڑت</span>
+                <span style={{ display: 'flex', gap: 4 }}>
+                  <button type="button" onClick={() => { setCommissionMode('default'); setCustomPercent(''); setSaleForm({ ...saleForm, commission: recalcCommission(saleForm.quantity, saleForm.rate) }); }}
+                    style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border)', background: commissionMode === 'default' ? 'var(--accent)' : 'transparent', color: commissionMode === 'default' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 600 }}>Default</button>
+                  <button type="button" onClick={() => { setCommissionMode('custom'); const dp = getDefaultPercent(saleForm.product_id); setCustomPercent(dp); setSaleForm({ ...saleForm, commission: calcCommission(saleForm.quantity, saleForm.rate, dp) }); }}
+                    style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border)', background: commissionMode === 'custom' ? 'var(--accent2)' : 'transparent', color: commissionMode === 'custom' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 600 }}>Custom</button>
+                </span>
+              </label>
+              {commissionMode === 'custom' ? (
+                <>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ flex: '0 0 100px', position: 'relative' }}>
+                      <input type="number" step="0.01" min="0" value={customPercent} onChange={e => { const pct = e.target.value; setCustomPercent(pct); setSaleForm({ ...saleForm, commission: calcCommission(saleForm.quantity, saleForm.rate, pct) }); }} style={{ borderColor: 'var(--accent2)', paddingRight: 28 }} placeholder="%" />
+                      <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.85rem', pointerEvents: 'none' }}>%</span>
+                    </div>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>→</span>
+                    <input type="number" step="0.01" value={saleForm.commission} readOnly style={{ flex: 1, opacity: 0.8, cursor: 'not-allowed', fontWeight: 700, color: 'var(--accent2)' }} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <input type="number" step="0.01" value={saleForm.commission} readOnly style={{ opacity: 0.7, cursor: 'not-allowed' }} />
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>Auto @ {getDefaultPercent(saleForm.product_id)}%</span>
+                </>
+              )}
+            </div>
+            <div className="form-group"><label>Bardana — بوری</label><input type="number" step="0.01" value={saleForm.bardana} onChange={e => setSaleForm({ ...saleForm, bardana: e.target.value })} /></div>
+            <div className="form-group"><label>Labour — مزدوری</label><input type="number" step="0.01" value={saleForm.labour} onChange={e => setSaleForm({ ...saleForm, labour: e.target.value })} /></div>
+
+            {/* Payment from Buyer section */}
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>
+                💰 Payment from Buyer — خریدار سے وصولی
+              </label>
+              <div className="tabs" style={{ marginBottom: 10 }}>
+                <button type="button" className={`tab ${saleForm.payment_status === 'To Receive' ? 'active' : ''}`}
+                  onClick={() => setSaleForm({ ...saleForm, payment_status: 'To Receive', amount_paid: 0, payment_mode: 'On Account' })}
+                  style={{ fontSize: '0.8rem' }}>To Receive — بعد میں وصولی</button>
+                <button type="button" className={`tab ${(saleForm.payment_status === 'Partial' || saleForm.payment_status === 'Received') ? 'active' : ''}`}
+                  onClick={() => setSaleForm({ ...saleForm, payment_status: 'Partial', amount_paid: saleForm.amount_paid || '' })}
+                  style={{ fontSize: '0.8rem' }}>Receive Now — ابھی وصولی</button>
+              </div>
+              {(saleForm.payment_status === 'Partial' || saleForm.payment_status === 'Received') && (
+                <>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+                    <input type="number" step="0.01" value={saleForm.amount_paid}
+                      onChange={e => {
+                        const val = e.target.value;
+                        const paid = parseFloat(val) || 0;
+                        setSaleForm({ ...saleForm, amount_paid: val, payment_status: paid >= saleNet ? 'Received' : 'Partial' });
+                      }}
+                      placeholder="Amount received from buyer..."
+                      style={{ flex: 1 }} />
+                    <button type="button" className="btn btn-sm btn-secondary"
+                      onClick={() => setSaleForm({ ...saleForm, amount_paid: saleNet, payment_status: 'Received' })}
+                      style={{ whiteSpace: 'nowrap', fontSize: '0.75rem' }}>Full Amount</button>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label style={{ fontSize: '0.78rem' }}>Payment Method — ادائیگی کا طریقہ</label>
+                    <select value={saleForm.payment_mode} onChange={e => setSaleForm({ ...saleForm, payment_mode: e.target.value })}>
+                      <option value="Cash">Cash — نقد</option>
+                      <option value="Bank Transfer">Bank Transfer — بینک ٹرانسفر</option>
+                      <option value="Cheque">Cheque — چیک</option>
+                      <option value="Online">Online / JazzCash / EasyPaisa</option>
+                    </select>
+                  </div>
+                </>
+              )}
+              {saleForm.payment_status === 'To Receive' && (
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                  ادھار — No payment now, amount added to buyer's outstanding balance
+                </div>
+              )}
+            </div>
+
+            <div className="form-group"><label>Notes — نوٹ</label><input value={saleForm.notes} onChange={e => setSaleForm({ ...saleForm, notes: e.target.value })} /></div>
+          </div>
+          <div className="totals-bar"><span>Total: <strong>{formatPKR(saleTotal)}</strong></span><span>Net: <strong className="amount positive" style={{ fontSize: '1.1rem' }}>{formatPKR(saleNet)}</strong></span></div>
+          <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => setShowSaleForm(false)}>Cancel</button><button type="submit" className="btn btn-primary" disabled={!!stockError}>Save Sale</button></div>
+        </form>
+      </Modal>
+    </div>
+  );
+}
