@@ -461,7 +461,6 @@ body {
 .stat-info {
   min-width: 0;
   flex: 1;
-  overflow: hidden;
 }
 
 .stat-info h3 {
@@ -724,6 +723,7 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 
 .badge-active {

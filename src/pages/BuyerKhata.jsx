@@ -225,8 +225,8 @@ export default function BuyerKhata() {
         </div>
       </div>
 
-      {/* Buyer Info + Summary Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
+      {/* Buyer Info */}
+      <div style={{ marginBottom: 12 }}>
         <div className="card" style={{ padding: '14px 18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <MdPerson style={{ color: 'var(--accent)', fontSize: '1.2rem' }} />
@@ -239,6 +239,10 @@ export default function BuyerKhata() {
             {!buyer.phone && !buyer.cnic && !buyer.address && <span style={{ color: 'var(--text-muted)' }}>No contact info</span>}
           </div>
         </div>
+      </div>
+
+      {/* Summary Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
         <div className="stat-card" style={{ animationDelay: '0s' }}>
           <div className="stat-icon amber"><MdPointOfSale /></div>
           <div className="stat-info"><h3>Opening Balance</h3><div className="stat-value">{formatPKR(openingBalance)}</div></div>
@@ -362,7 +366,7 @@ export default function BuyerKhata() {
               {stockError && <div style={{ fontSize: '0.75rem', color: 'var(--red)', fontWeight: 600, marginTop: 4 }}>{stockError}</div>}
             </div>
             <div className="form-group"><label>Rate (PKR) — نرخ</label><input type="number" step="0.01" required value={saleForm.rate} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(saleForm.quantity, r) : calcCommission(saleForm.quantity, r, customPercent); setSaleForm({ ...saleForm, rate: r, commission: comm }); }} /></div>
-            <div className="form-group">
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
               <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>Commission — آڑت</span>
                 <span style={{ display: 'flex', gap: 4 }}>
