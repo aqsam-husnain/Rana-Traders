@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MdArrowBack, MdAdd, MdDelete, MdPayment, MdShoppingCart, MdPerson, MdPhone, MdBadge, MdLocationOn } from 'react-icons/md';
+import { MdArrowBack, MdAdd, MdDelete, MdPayment, MdShoppingCart, MdPerson, MdPhone, MdBadge, MdLocationOn, MdClose } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
+import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
@@ -23,9 +24,12 @@ export default function SupplierKhata() {
   const [units, setUnits] = useState([]);
   const [commissionMode, setCommissionMode] = useState('default');
   const [customPercent, setCustomPercent] = useState('');
+  const [showUnitInput, setShowUnitInput] = useState(false);
+  const [newUnit, setNewUnit] = useState('');
   const [purchForm, setPurchForm] = useState({
     product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0,
-    bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: ''
+    bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '',
+    amount_paid: 0, payment_status: 'To Pay'
   });
 
   useEffect(() => { loadAll(); }, [id]);
@@ -71,14 +75,35 @@ export default function SupplierKhata() {
 
   const openPurchaseForm = () => {
     setCommissionMode('default'); setCustomPercent('');
-    setPurchForm({ product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '' });
+    setShowUnitInput(false); setNewUnit('');
+    setPurchForm({ product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '', amount_paid: 0, payment_status: 'To Pay' });
     setShowPurchaseForm(true);
+  };
+
+  const updatePaymentStatus = (amtPaid) => {
+    const paid = parseFloat(amtPaid) || 0;
+    if (paid <= 0) return 'To Pay';
+    if (paid >= purchNet) return 'Paid';
+    return 'Partial';
   };
 
   const handleProductChange = (pid) => {
     const p = products.find(x => x.id === parseInt(pid));
     let newCommission = commissionMode === 'default' ? recalcCommission(purchForm.quantity, purchForm.rate, pid) : calcCommission(purchForm.quantity, purchForm.rate, customPercent);
     setPurchForm({ ...purchForm, product_id: pid, unit: p ? p.unit : '', commission: newCommission });
+    setShowUnitInput(false);
+    setNewUnit('');
+  };
+
+  const handleAddUnit = async () => {
+    const trimmed = newUnit.trim();
+    if (!trimmed) return;
+    await window.api.addUnit(trimmed);
+    const updatedUnits = await window.api.getUnits();
+    setUnits(updatedUnits);
+    setNewUnit('');
+    setShowUnitInput(false);
+    setPurchForm(prev => ({ ...prev, unit: trimmed }));
   };
 
   const handlePurchaseSave = async (e) => {
@@ -87,13 +112,16 @@ export default function SupplierKhata() {
     if (!purchForm.product_id) return alert('Please select a product');
     if (qty <= 0) return alert('Quantity must be greater than 0');
 
+    const amountPaid = parseFloat(purchForm.amount_paid) || 0;
+    const paymentStatus = updatePaymentStatus(amountPaid);
+
     await window.api.addPurchase({
       supplier_id: parseInt(id), product_id: parseInt(purchForm.product_id), date: purchForm.date,
       quantity: qty, rate: parseFloat(purchForm.rate), total: purchTotal,
       commission: parseFloat(purchForm.commission) || 0, bardana: parseFloat(purchForm.bardana) || 0,
       labour: parseFloat(purchForm.labour) || 0, net_amount: purchNet,
       payment_mode: purchForm.payment_mode, notes: purchForm.notes,
-      amount_paid: 0, payment_status: 'To Pay',
+      amount_paid: amountPaid, payment_status: paymentStatus,
       unit: purchForm.unit || null, commission_type: commissionMode
     });
     setShowPurchaseForm(false);
@@ -101,21 +129,32 @@ export default function SupplierKhata() {
   };
 
   const handleDeletePayment = async (paymentId) => {
-    if (confirm('Delete this payment entry?')) { await window.api.deletePayment(paymentId); loadAll(); }
+    if (confirmAction('Delete this payment entry?')) { await window.api.deletePayment(paymentId); loadAll(); }
   };
   const handleDeletePurchase = async (purchaseId) => {
-    if (confirm('Delete this purchase entry?')) { await window.api.deletePurchase(purchaseId); loadAll(); }
+    if (confirmAction('Delete this purchase entry?')) { await window.api.deletePurchase(purchaseId); loadAll(); }
   };
 
   // ─── Export ───
-  const handleExport = (format) => {
+  const getExportColumns = () => ['#', 'Date', 'Type', 'Product', 'Qty', 'Rate', 'Debit', 'Credit', 'Balance'];
+
+  const handleExport = (format, hiddenColumns = []) => {
     if (!entries.length) return;
     let bal = openingBalance;
-    const columns = ['#', 'Date', 'Type', 'Product', 'Qty', 'Rate', 'Debit', 'Credit', 'Balance'];
-    const rows = [['', '', '', '', '', '', '', '', formatPKR(openingBalance)]];
+    const columns = getExportColumns();
+    const mask = (colName, value) => hiddenColumns.includes(colName) ? '—' : value;
+    const rows = [['', '', 'Opening Balance — ابتدائی بیلنس', '', '', '', '', '', formatPKR(openingBalance)]];
     entries.forEach((e, i) => {
       bal += (e.debit || 0) - (e.credit || 0);
-      rows.push([i + 1, formatDate(e.date), e.type, e.product_name || '—', e.quantity || '—', e.rate ? formatPKR(e.rate) : '—', e.debit ? formatPKR(e.debit) : '—', e.credit ? formatPKR(e.credit) : '—', formatPKR(bal)]);
+      const productWithUnit = e.product_name ? `${e.product_name}${e.display_unit ? ` (${e.display_unit})` : ''}` : '—';
+      rows.push([
+        mask('#', i + 1), mask('Date', formatDate(e.date)), mask('Type', e.type),
+        mask('Product', productWithUnit), mask('Qty', e.quantity || '—'),
+        mask('Rate', e.rate ? formatPKR(e.rate) : '—'),
+        mask('Debit', e.debit ? formatPKR(e.debit) : '—'),
+        mask('Credit', e.credit ? formatPKR(e.credit) : '—'),
+        mask('Balance', formatPKR(bal))
+      ]);
     });
     const totalDebit = entries.reduce((s, e) => s + (e.debit || 0), 0);
     const totalCredit = entries.reduce((s, e) => s + (e.credit || 0), 0);
@@ -146,7 +185,7 @@ export default function SupplierKhata() {
           </div>
         </div>
         <div className="flex gap-2">
-          <ExportDropdown onExport={handleExport} disabled={entries.length === 0} />
+          <ExportDropdown onExport={handleExport} disabled={entries.length === 0} columns={getExportColumns()} />
           <button className="btn btn-primary" onClick={openPaymentForm}><MdPayment style={{ marginRight: 4 }} /> Add Payment</button>
           <button className="btn btn-primary" style={{ background: 'var(--accent2)' }} onClick={openPurchaseForm}><MdShoppingCart style={{ marginRight: 4 }} /> New Purchase</button>
         </div>
@@ -224,7 +263,7 @@ export default function SupplierKhata() {
             <div className="form-group"><label>Date & Time</label><input type="datetime-local" required value={payForm.date} onChange={e => setPayForm({ ...payForm, date: e.target.value })} /></div>
             <div className="form-group"><label>Amount (PKR)</label><input type="number" step="0.01" required value={payForm.amount} onChange={e => setPayForm({ ...payForm, amount: e.target.value })} /></div>
             <div className="form-group"><label>Type</label><select value={payForm.type} onChange={e => setPayForm({ ...payForm, type: e.target.value })}><option>Paid</option><option>Received</option></select></div>
-            <div className="form-group"><label>Mode</label><select value={payForm.mode} onChange={e => setPayForm({ ...payForm, mode: e.target.value })}><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select></div>
+            <div className="form-group"><label>Mode — ادائیگی کا طریقہ</label><select value={payForm.mode} onChange={e => setPayForm({ ...payForm, mode: e.target.value })}><option value="Cash">Cash — نقد</option><option value="Bank Transfer">Bank Transfer — بینک ٹرانسفر</option><option value="Cheque">Cheque — چیک</option><option value="Online">Online / JazzCash / EasyPaisa</option></select></div>
             <div className="form-group"><label>Reference / Cheque #</label><input value={payForm.reference} onChange={e => setPayForm({ ...payForm, reference: e.target.value })} /></div>
             <div className="form-group"><label>Notes</label><input value={payForm.notes} onChange={e => setPayForm({ ...payForm, notes: e.target.value })} /></div>
           </div>
@@ -236,7 +275,7 @@ export default function SupplierKhata() {
       <Modal show={showPurchaseForm} onClose={() => setShowPurchaseForm(false)} title={<>New Purchase from {supplier.name} — <span className="urdu">نئی خریداری</span></>} large>
         <form onSubmit={handlePurchaseSave}>
           <div className="form-grid">
-            <div className="form-group"><label>Date & Time</label><input type="datetime-local" required value={purchForm.date} onChange={e => setPurchForm({ ...purchForm, date: e.target.value })} /></div>
+            <div className="form-group"><label>Date & Time — تاریخ و وقت</label><input type="datetime-local" required value={purchForm.date} onChange={e => setPurchForm({ ...purchForm, date: e.target.value })} /></div>
             <div className="form-group">
               <label>Product — جنس</label>
               <select required value={purchForm.product_id} onChange={e => handleProductChange(e.target.value)}>
@@ -244,9 +283,30 @@ export default function SupplierKhata() {
                 {products.filter(p => p.status === 'Active').map(p => <option key={p.id} value={p.id}>{p.name} — {p.name_urdu}</option>)}
               </select>
             </div>
-            <div className="form-group"><label>Unit — اکائی</label><select value={purchForm.unit} onChange={e => setPurchForm({ ...purchForm, unit: e.target.value })}>{units.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}</select></div>
+            <div className="form-group">
+              <label>Unit — اکائی</label>
+              <select value={showUnitInput ? '__custom__' : purchForm.unit} onChange={e => {
+                if (e.target.value === '__custom__') { setShowUnitInput(true); }
+                else { setShowUnitInput(false); setNewUnit(''); setPurchForm({ ...purchForm, unit: e.target.value }); }
+              }}>
+                {!purchForm.unit && <option value="">Select Unit</option>}
+                {units.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                <option value="__custom__">➕ Add New Unit...</option>
+              </select>
+              {showUnitInput && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                  <input value={newUnit} onChange={e => setNewUnit(e.target.value)} placeholder="New unit name..." autoFocus
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddUnit(); } if (e.key === 'Escape') { setShowUnitInput(false); setNewUnit(''); } }}
+                    style={{ flex: 1 }} />
+                  <button type="button" className="btn btn-sm btn-primary" onClick={handleAddUnit} style={{ minWidth: 34, height: 40 }}><MdAdd /></button>
+                  <button type="button" className="btn btn-sm btn-secondary" onClick={() => { setShowUnitInput(false); setNewUnit(''); }} style={{ minWidth: 34, height: 40 }}><MdClose /></button>
+                </div>
+              )}
+            </div>
             <div className="form-group"><label>Quantity — مقدار</label><input type="number" step="0.01" required value={purchForm.quantity} onChange={e => { const q = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(q, purchForm.rate) : calcCommission(q, purchForm.rate, customPercent); setPurchForm({ ...purchForm, quantity: q, commission: comm }); }} /></div>
             <div className="form-group"><label>Rate (PKR) — نرخ</label><input type="number" step="0.01" required value={purchForm.rate} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(purchForm.quantity, r) : calcCommission(purchForm.quantity, r, customPercent); setPurchForm({ ...purchForm, rate: r, commission: comm }); }} /></div>
+
+            {/* Commission with default/custom toggle */}
             <div className="form-group">
               <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>Commission — آڑت</span>
@@ -258,26 +318,79 @@ export default function SupplierKhata() {
                 </span>
               </label>
               {commissionMode === 'custom' ? (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <div style={{ flex: '0 0 100px', position: 'relative' }}>
-                    <input type="number" step="0.01" min="0" value={customPercent} onChange={e => { const pct = e.target.value; setCustomPercent(pct); setPurchForm({ ...purchForm, commission: calcCommission(purchForm.quantity, purchForm.rate, pct) }); }} style={{ borderColor: 'var(--accent2)', paddingRight: 28 }} placeholder="%" />
-                    <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.85rem', pointerEvents: 'none' }}>%</span>
+                <>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ flex: '0 0 100px', position: 'relative' }}>
+                      <input type="number" step="0.01" min="0" value={customPercent}
+                        onChange={e => { const pct = e.target.value; setCustomPercent(pct); setPurchForm({ ...purchForm, commission: calcCommission(purchForm.quantity, purchForm.rate, pct) }); }}
+                        style={{ borderColor: 'var(--accent2)', paddingRight: 28 }} placeholder="%" />
+                      <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.85rem', pointerEvents: 'none' }}>%</span>
+                    </div>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>→</span>
+                    <input type="number" step="0.01" value={purchForm.commission} readOnly style={{ flex: 1, opacity: 0.8, cursor: 'not-allowed', fontWeight: 700, color: 'var(--accent2)' }} />
                   </div>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>→</span>
-                  <input type="number" step="0.01" value={purchForm.commission} readOnly style={{ flex: 1, opacity: 0.8, cursor: 'not-allowed', fontWeight: 700, color: 'var(--accent2)' }} />
-                </div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--accent2)', marginTop: 2 }}>Enter your commission % — amount auto-calculated</span>
+                </>
               ) : (
                 <>
                   <input type="number" step="0.01" value={purchForm.commission} readOnly style={{ opacity: 0.7, cursor: 'not-allowed' }} />
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>Auto @ {getDefaultPercent(purchForm.product_id)}%</span>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>Auto-calculated @ {getDefaultPercent(purchForm.product_id)}% (product default)</span>
                 </>
               )}
             </div>
+
             <div className="form-group"><label>Bardana — بوری</label><input type="number" step="0.01" value={purchForm.bardana} onChange={e => setPurchForm({ ...purchForm, bardana: e.target.value })} /></div>
             <div className="form-group"><label>Labour — مزدوری</label><input type="number" step="0.01" value={purchForm.labour} onChange={e => setPurchForm({ ...purchForm, labour: e.target.value })} /></div>
+
+            {/* Payment to Supplier section */}
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent2)', marginBottom: 8 }}>
+                💰 Payment to Supplier — سپلائر کو ادائیگی
+              </label>
+              <div className="tabs" style={{ marginBottom: 10 }}>
+                <button type="button" className={`tab ${purchForm.payment_status === 'To Pay' ? 'active' : ''}`}
+                  onClick={() => setPurchForm({ ...purchForm, payment_status: 'To Pay', amount_paid: 0, payment_mode: 'On Account' })}
+                  style={{ fontSize: '0.8rem' }}>To Pay — بعد میں ادائیگی</button>
+                <button type="button" className={`tab ${(purchForm.payment_status === 'Partial' || purchForm.payment_status === 'Paid') ? 'active' : ''}`}
+                  onClick={() => setPurchForm({ ...purchForm, payment_status: 'Partial', amount_paid: purchForm.amount_paid || '' })}
+                  style={{ fontSize: '0.8rem' }}>Pay Now — ابھی ادائیگی</button>
+              </div>
+              {(purchForm.payment_status === 'Partial' || purchForm.payment_status === 'Paid') && (
+                <>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+                    <input type="number" step="0.01" value={purchForm.amount_paid}
+                      onChange={e => {
+                        const val = e.target.value;
+                        const paid = parseFloat(val) || 0;
+                        setPurchForm({ ...purchForm, amount_paid: val, payment_status: paid >= purchNet ? 'Paid' : 'Partial' });
+                      }}
+                      placeholder="Amount to pay supplier..."
+                      style={{ flex: 1 }} />
+                    <button type="button" className="btn btn-sm btn-secondary"
+                      onClick={() => setPurchForm({ ...purchForm, amount_paid: purchNet, payment_status: 'Paid' })}
+                      style={{ whiteSpace: 'nowrap', fontSize: '0.75rem' }}>Full Amount</button>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label style={{ fontSize: '0.78rem' }}>Payment Method — ادائیگی کا طریقہ</label>
+                    <select value={purchForm.payment_mode} onChange={e => setPurchForm({ ...purchForm, payment_mode: e.target.value })}>
+                      <option value="Cash">Cash — نقد</option>
+                      <option value="Bank Transfer">Bank Transfer — بینک ٹرانسفر</option>
+                      <option value="Cheque">Cheque — چیک</option>
+                      <option value="Online">Online / JazzCash / EasyPaisa</option>
+                    </select>
+                  </div>
+                </>
+              )}
+              {purchForm.payment_status === 'To Pay' && (
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                  ادھار — No payment now, amount added to supplier's outstanding balance
+                </div>
+              )}
+            </div>
+
             <div className="form-group"><label>Notes — نوٹ</label><input value={purchForm.notes} onChange={e => setPurchForm({ ...purchForm, notes: e.target.value })} /></div>
           </div>
-          <div className="totals-bar"><span>Total: <strong>{formatPKR(purchTotal)}</strong></span><span>Net: <strong className="amount" style={{ fontSize: '1.1rem', color: 'var(--accent2)' }}>{formatPKR(purchNet)}</strong></span></div>
+          <div className="totals-bar"><span>Total: <strong>{formatPKR(purchTotal)}</strong></span><span>Net Amount: <strong className="amount" style={{ fontSize: '1.1rem', color: 'var(--accent2)' }}>{formatPKR(purchNet)}</strong></span></div>
           <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => setShowPurchaseForm(false)}>Cancel</button><button type="submit" className="btn btn-primary">Save Purchase</button></div>
         </form>
       </Modal>

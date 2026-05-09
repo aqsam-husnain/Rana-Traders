@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MdArrowBack, MdAdd, MdDelete, MdPayment, MdPointOfSale, MdPerson, MdPhone, MdBadge, MdLocationOn } from 'react-icons/md';
+import { MdArrowBack, MdAdd, MdDelete, MdPayment, MdPointOfSale, MdPerson, MdPhone, MdBadge, MdLocationOn, MdClose } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
+import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
@@ -25,6 +26,8 @@ export default function BuyerKhata() {
   const [stockError, setStockError] = useState('');
   const [commissionMode, setCommissionMode] = useState('default');
   const [customPercent, setCustomPercent] = useState('');
+  const [showUnitInput, setShowUnitInput] = useState(false);
+  const [newUnit, setNewUnit] = useState('');
   const [saleForm, setSaleForm] = useState({
     product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0,
     bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '',
@@ -91,6 +94,7 @@ export default function BuyerKhata() {
 
   const openSaleForm = () => {
     setCommissionMode('default'); setCustomPercent('');
+    setShowUnitInput(false); setNewUnit('');
     setSaleForm({ product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '', amount_paid: 0, payment_status: 'To Receive' });
     setAvailableStock(null); setStockError('');
     setShowSaleForm(true);
@@ -108,6 +112,19 @@ export default function BuyerKhata() {
     let newCommission = commissionMode === 'default' ? recalcCommission(saleForm.quantity, saleForm.rate, pid) : calcCommission(saleForm.quantity, saleForm.rate, customPercent);
     setSaleForm({ ...saleForm, product_id: pid, unit: p ? p.unit : '', commission: newCommission });
     checkStock(pid);
+    setShowUnitInput(false);
+    setNewUnit('');
+  };
+
+  const handleAddUnit = async () => {
+    const trimmed = newUnit.trim();
+    if (!trimmed) return;
+    await window.api.addUnit(trimmed);
+    const updatedUnits = await window.api.getUnits();
+    setUnits(updatedUnits);
+    setNewUnit('');
+    setShowUnitInput(false);
+    setSaleForm(prev => ({ ...prev, unit: trimmed }));
   };
 
   const handleSaleSave = async (e) => {
@@ -136,28 +153,39 @@ export default function BuyerKhata() {
   };
 
   const handleDeletePayment = async (paymentId) => {
-    if (confirm('Delete this payment entry?')) {
+    if (confirmAction('Delete this payment entry?')) {
       await window.api.deletePayment(paymentId);
       loadAll();
     }
   };
 
   const handleDeleteSale = async (saleId) => {
-    if (confirm('Delete this sale entry?')) {
+    if (confirmAction('Delete this sale entry?')) {
       await window.api.deleteSale(saleId);
       loadAll();
     }
   };
 
   // ─── Export ───
-  const handleExport = (format) => {
+  const getExportColumns = () => ['#', 'Date', 'Type', 'Product', 'Qty', 'Rate', 'Debit', 'Credit', 'Balance'];
+
+  const handleExport = (format, hiddenColumns = []) => {
     if (!entries.length) return;
     let bal = openingBalance;
-    const columns = ['#', 'Date', 'Type', 'Product', 'Qty', 'Rate', 'Debit', 'Credit', 'Balance'];
-    const rows = [['', '', '', '', '', '', '', '', formatPKR(openingBalance)]];
+    const columns = getExportColumns();
+    const mask = (colName, value) => hiddenColumns.includes(colName) ? '—' : value;
+    const rows = [['', '', 'Opening Balance — ابتدائی بیلنس', '', '', '', '', '', formatPKR(openingBalance)]];
     entries.forEach((e, i) => {
       bal += (e.debit || 0) - (e.credit || 0);
-      rows.push([i + 1, formatDate(e.date), e.type, e.product_name || '—', e.quantity || '—', e.rate ? formatPKR(e.rate) : '—', e.debit ? formatPKR(e.debit) : '—', e.credit ? formatPKR(e.credit) : '—', formatPKR(bal)]);
+      const productWithUnit = e.product_name ? `${e.product_name}${e.display_unit ? ` (${e.display_unit})` : ''}` : '—';
+      rows.push([
+        mask('#', i + 1), mask('Date', formatDate(e.date)), mask('Type', e.type),
+        mask('Product', productWithUnit), mask('Qty', e.quantity || '—'),
+        mask('Rate', e.rate ? formatPKR(e.rate) : '—'),
+        mask('Debit', e.debit ? formatPKR(e.debit) : '—'),
+        mask('Credit', e.credit ? formatPKR(e.credit) : '—'),
+        mask('Balance', formatPKR(bal))
+      ]);
     });
     const totalDebit = entries.reduce((s, e) => s + (e.debit || 0), 0);
     const totalCredit = entries.reduce((s, e) => s + (e.credit || 0), 0);
@@ -190,7 +218,7 @@ export default function BuyerKhata() {
           </div>
         </div>
         <div className="flex gap-2">
-          <ExportDropdown onExport={handleExport} disabled={entries.length === 0} />
+          <ExportDropdown onExport={handleExport} disabled={entries.length === 0} columns={getExportColumns()} />
           <button className="btn btn-primary" onClick={openPaymentForm}><MdPayment style={{ marginRight: 4 }} /> Add Payment</button>
           <button className="btn btn-primary" style={{ background: 'var(--green)' }} onClick={openSaleForm}><MdPointOfSale style={{ marginRight: 4 }} /> New Sale</button>
         </div>
@@ -280,7 +308,7 @@ export default function BuyerKhata() {
             <div className="form-group"><label>Date & Time</label><input type="datetime-local" required value={payForm.date} onChange={e => setPayForm({ ...payForm, date: e.target.value })} /></div>
             <div className="form-group"><label>Amount (PKR)</label><input type="number" step="0.01" required value={payForm.amount} onChange={e => setPayForm({ ...payForm, amount: e.target.value })} /></div>
             <div className="form-group"><label>Type</label><select value={payForm.type} onChange={e => setPayForm({ ...payForm, type: e.target.value })}><option>Received</option><option>Paid</option></select></div>
-            <div className="form-group"><label>Mode</label><select value={payForm.mode} onChange={e => setPayForm({ ...payForm, mode: e.target.value })}><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select></div>
+            <div className="form-group"><label>Mode — ادائیگی کا طریقہ</label><select value={payForm.mode} onChange={e => setPayForm({ ...payForm, mode: e.target.value })}><option value="Cash">Cash — نقد</option><option value="Bank Transfer">Bank Transfer — بینک ٹرانسفر</option><option value="Cheque">Cheque — چیک</option><option value="Online">Online / JazzCash / EasyPaisa</option></select></div>
             <div className="form-group"><label>Reference / Cheque #</label><input value={payForm.reference} onChange={e => setPayForm({ ...payForm, reference: e.target.value })} /></div>
             <div className="form-group"><label>Notes</label><input value={payForm.notes} onChange={e => setPayForm({ ...payForm, notes: e.target.value })} /></div>
           </div>
@@ -303,9 +331,23 @@ export default function BuyerKhata() {
             </div>
             <div className="form-group">
               <label>Unit — اکائی</label>
-              <select value={saleForm.unit} onChange={e => setSaleForm({ ...saleForm, unit: e.target.value })}>
+              <select value={showUnitInput ? '__custom__' : saleForm.unit} onChange={e => {
+                if (e.target.value === '__custom__') { setShowUnitInput(true); }
+                else { setShowUnitInput(false); setNewUnit(''); setSaleForm({ ...saleForm, unit: e.target.value }); }
+              }}>
+                {!saleForm.unit && <option value="">Select Unit</option>}
                 {units.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                <option value="__custom__">➕ Add New Unit...</option>
               </select>
+              {showUnitInput && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                  <input value={newUnit} onChange={e => setNewUnit(e.target.value)} placeholder="New unit name..." autoFocus
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddUnit(); } if (e.key === 'Escape') { setShowUnitInput(false); setNewUnit(''); } }}
+                    style={{ flex: 1 }} />
+                  <button type="button" className="btn btn-sm btn-primary" onClick={handleAddUnit} style={{ minWidth: 34, height: 40 }}><MdAdd /></button>
+                  <button type="button" className="btn btn-sm btn-secondary" onClick={() => { setShowUnitInput(false); setNewUnit(''); }} style={{ minWidth: 34, height: 40 }}><MdClose /></button>
+                </div>
+              )}
             </div>
             <div className="form-group">
               <label>Quantity — مقدار</label>
@@ -335,11 +377,12 @@ export default function BuyerKhata() {
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>→</span>
                     <input type="number" step="0.01" value={saleForm.commission} readOnly style={{ flex: 1, opacity: 0.8, cursor: 'not-allowed', fontWeight: 700, color: 'var(--accent2)' }} />
                   </div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--accent2)', marginTop: 2 }}>Enter your commission % — amount auto-calculated</span>
                 </>
               ) : (
                 <>
                   <input type="number" step="0.01" value={saleForm.commission} readOnly style={{ opacity: 0.7, cursor: 'not-allowed' }} />
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>Auto @ {getDefaultPercent(saleForm.product_id)}%</span>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>Auto-calculated @ {getDefaultPercent(saleForm.product_id)}% (product default)</span>
                 </>
               )}
             </div>

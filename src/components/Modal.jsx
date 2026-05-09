@@ -5,48 +5,63 @@ export default function Modal({ show, onClose, title, children, large }) {
   const modalRef = useRef(null);
   const previousActiveElement = useRef(null);
 
+  // Focus the first input inside the modal — tries multiple times
+  // to handle cases where OS-level window focus was lost (e.g. after confirm() dialogs)
+  const focusFirstInput = useCallback(() => {
+    if (!modalRef.current) return;
+    const firstInput = modalRef.current.querySelector('input:not([readonly]), select, textarea, button[type="submit"]');
+    if (firstInput) {
+      firstInput.focus();
+    } else {
+      modalRef.current.focus();
+    }
+  }, []);
+
   // Save the previously focused element when modal opens, and restore it when it closes
   useEffect(() => {
     if (show) {
       // Remember what was focused before the modal opened
       previousActiveElement.current = document.activeElement;
 
-      // Focus the modal container so keyboard works inside it
-      // Use a small delay to ensure the portal has rendered
-      const timer = setTimeout(() => {
-        if (modalRef.current) {
-          const firstInput = modalRef.current.querySelector('input, select, textarea, button[type="submit"]');
-          if (firstInput) {
-            firstInput.focus();
-          } else {
-            modalRef.current.focus();
-          }
-        }
-      }, 50);
+      // Ensure the window itself has OS-level focus
+      window.focus();
 
-      return () => clearTimeout(timer);
+      // Focus the first input — try multiple times with increasing delays
+      // to handle cases where window focus hasn't been fully restored yet
+      const t1 = setTimeout(focusFirstInput, 50);
+      const t2 = setTimeout(focusFirstInput, 150);
+      const t3 = setTimeout(focusFirstInput, 300);
+
+      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
     } else {
       // When modal closes, restore focus to the previously active element
       // This prevents the "keyboard stops working" bug where focus falls to <body>
-      if (previousActiveElement.current && typeof previousActiveElement.current.focus === 'function') {
-        // Small delay to ensure the portal is fully unmounted
-        const timer = setTimeout(() => {
-          try {
+      const timer = setTimeout(() => {
+        try {
+          // Check if the previously focused element still exists in the DOM
+          if (
+            previousActiveElement.current &&
+            typeof previousActiveElement.current.focus === 'function' &&
+            document.body.contains(previousActiveElement.current)
+          ) {
             previousActiveElement.current.focus();
-          } catch (e) {
-            // If the element no longer exists, focus the page content area
+          } else {
+            // Element was removed (e.g. deleted row) — focus the page content
             const pageContent = document.querySelector('.page-content');
             if (pageContent) {
-              pageContent.setAttribute('tabindex', '-1');
-              pageContent.focus();
-              pageContent.removeAttribute('tabindex');
+              pageContent.focus({ preventScroll: true });
             }
           }
-        }, 10);
-        return () => clearTimeout(timer);
-      }
+        } catch (e) {
+          const pageContent = document.querySelector('.page-content');
+          if (pageContent) {
+            pageContent.focus({ preventScroll: true });
+          }
+        }
+      }, 10);
+      return () => clearTimeout(timer);
     }
-  }, [show]);
+  }, [show, focusFirstInput]);
 
   // Handle Escape key to close modal
   const handleKeyDown = useCallback((e) => {
@@ -62,6 +77,20 @@ export default function Modal({ show, onClose, title, children, large }) {
     }
   }, [show, handleKeyDown]);
 
+  // Safety net: if the user clicks anywhere inside the modal and focus is
+  // somehow lost (stuck on body), force focus into the modal's first input
+  const handleModalClick = useCallback((e) => {
+    // Don't steal focus from elements that are already focusable
+    const target = e.target;
+    const isFocusable = target.matches(
+      'input, select, textarea, button, a, [tabindex], [contenteditable]'
+    );
+    if (!isFocusable) {
+      // Focus is on a non-interactive element — push it to the first input
+      requestAnimationFrame(focusFirstInput);
+    }
+  }, [focusFirstInput]);
+
   if (!show) return null;
 
   return createPortal(
@@ -73,6 +102,7 @@ export default function Modal({ show, onClose, title, children, large }) {
         role="dialog"
         aria-modal="true"
         aria-label={typeof title === 'string' ? title : 'Dialog'}
+        onClick={handleModalClick}
       >
         <div className="modal-header">
           <h3>{title}</h3>

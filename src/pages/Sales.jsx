@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MdAdd, MdDelete, MdPerson, MdPersonOutline, MdWarning, MdClose } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
+import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
@@ -98,11 +99,11 @@ export default function Sales() {
     const trimmed = newUnit.trim();
     if (!trimmed) return;
     await window.api.addUnit(trimmed);
-    setNewUnit('');
-    setShowUnitInput(false);
     const updatedUnits = await window.api.getUnits();
     setUnits(updatedUnits);
-    setForm({ ...form, unit: trimmed });
+    setNewUnit('');
+    setShowUnitInput(false);
+    setForm(prev => ({ ...prev, unit: trimmed }));
   };
 
   const handleSave = async (e) => {
@@ -138,7 +139,7 @@ export default function Sales() {
     setShowForm(false); load();
   };
 
-  const handleDelete = async (id) => { if (confirm('Delete this sale entry?')) { await window.api.deleteSale(id); load(); } };
+  const handleDelete = async (id) => { if (confirmAction('Delete this sale entry?')) { await window.api.deleteSale(id); load(); } };
 
   const handleExport = (format) => {
     if (sales.length === 0) return;
@@ -229,6 +230,7 @@ export default function Sales() {
                 if (e.target.value === '__custom__') { setShowUnitInput(true); }
                 else { setShowUnitInput(false); setNewUnit(''); setForm({ ...form, unit: e.target.value }); }
               }}>
+                {!form.unit && <option value="">Select Unit</option>}
                 {units.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
                 <option value="__custom__">➕ Add New Unit...</option>
               </select>

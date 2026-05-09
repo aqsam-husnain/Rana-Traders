@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MdAdd, MdDelete } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO } from '../utils/formatters';
+import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
@@ -26,7 +27,7 @@ export default function Payments() {
     setForm({ party_type: 'Customer', party_id: '', date: todayISO(), amount: '', type: 'Received', mode: 'Cash', reference: '', notes: '' });
     load();
   };
-  const handleDelete = async (id) => { if (confirm('Delete?')) { await window.api.deletePayment(id); load(); } };
+  const handleDelete = async (id) => { if (confirmAction('Delete?')) { await window.api.deletePayment(id); load(); } };
   const partyList = form.party_type === 'Buyer' ? buyers : suppliers;
 
   const handleExport = (format) => {

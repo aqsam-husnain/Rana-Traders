@@ -122,20 +122,20 @@ function registerIpcHandlers() {
   // Ledger
   ipcMain.handle('get-buyer-ledger', (_e, bid) => {
     const buyer = queryOne('SELECT * FROM buyers WHERE id=?', [bid]);
-    const sales = queryAll("SELECT s.id as sale_id,s.date,'Sale' as type,p.name as product_name,p.name_urdu as product_name_urdu,s.quantity,s.rate,s.net_amount as debit,0 as credit,s.notes FROM sales s LEFT JOIN products p ON s.product_id=p.id WHERE s.buyer_id=? ORDER BY s.date,s.id", [bid]);
+    const sales = queryAll("SELECT s.id as sale_id,s.date,'Sale' as type,p.name as product_name,p.name_urdu as product_name_urdu,s.quantity,s.rate,s.net_amount as debit,0 as credit,s.notes,COALESCE(s.unit,p.unit) as display_unit FROM sales s LEFT JOIN products p ON s.product_id=p.id WHERE s.buyer_id=? ORDER BY s.date,s.id", [bid]);
     // Payments received at sale time (amount_paid from sales table)
     const salePayments = queryAll("SELECT NULL as sale_id,NULL as payment_id,s.date,'Payment' as type,p.name as product_name,p.name_urdu as product_name_urdu,0 as quantity,0 as rate,0 as debit,s.amount_paid as credit,COALESCE(s.notes,'') || ' (received with sale)' as notes FROM sales s LEFT JOIN products p ON s.product_id=p.id WHERE s.buyer_id=? AND s.amount_paid>0 ORDER BY s.date,s.id", [bid]);
     // Separate standalone payments from payments table
-    const payments = queryAll("SELECT id as payment_id,date,'Payment' as type,'' as product_name,'' as product_name_urdu,0 as quantity,0 as rate,0 as debit,amount as credit,notes FROM payments WHERE party_type='Buyer' AND party_id=? ORDER BY date,id", [bid]);
+    const payments = queryAll("SELECT id as payment_id,date,'Payment' as type,'' as product_name,'' as product_name_urdu,0 as quantity,0 as rate,CASE WHEN type='Paid' THEN amount ELSE 0 END as debit,CASE WHEN type='Received' THEN amount ELSE 0 END as credit,notes FROM payments WHERE party_type='Buyer' AND party_id=? ORDER BY date,id", [bid]);
     return { buyer, entries: [...sales, ...salePayments, ...payments].sort((a, b) => (a.date || '').localeCompare(b.date || '')) };
   });
   ipcMain.handle('get-supplier-ledger', (_e, sid) => {
     const supplier = queryOne('SELECT * FROM suppliers WHERE id=?', [sid]);
-    const purchases = queryAll("SELECT pu.id as purchase_id,pu.date,'Purchase' as type,p.name as product_name,p.name_urdu as product_name_urdu,pu.quantity,pu.rate,pu.net_amount as debit,0 as credit,pu.notes FROM purchases pu LEFT JOIN products p ON pu.product_id=p.id WHERE pu.supplier_id=? ORDER BY pu.date,pu.id", [sid]);
+    const purchases = queryAll("SELECT pu.id as purchase_id,pu.date,'Purchase' as type,p.name as product_name,p.name_urdu as product_name_urdu,pu.quantity,pu.rate,pu.net_amount as debit,0 as credit,pu.notes,COALESCE(pu.unit,p.unit) as display_unit FROM purchases pu LEFT JOIN products p ON pu.product_id=p.id WHERE pu.supplier_id=? ORDER BY pu.date,pu.id", [sid]);
     // Payments made at purchase time (amount_paid from purchases table)
     const purchasePayments = queryAll("SELECT NULL as purchase_id,NULL as payment_id,pu.date,'Payment' as type,p.name as product_name,p.name_urdu as product_name_urdu,0 as quantity,0 as rate,0 as debit,pu.amount_paid as credit,COALESCE(pu.notes,'') || ' (paid with purchase)' as notes FROM purchases pu LEFT JOIN products p ON pu.product_id=p.id WHERE pu.supplier_id=? AND pu.amount_paid>0 ORDER BY pu.date,pu.id", [sid]);
     // Separate standalone payments from payments table
-    const payments = queryAll("SELECT id as payment_id,date,'Payment' as type,'' as product_name,'' as product_name_urdu,0 as quantity,0 as rate,0 as debit,amount as credit,notes FROM payments WHERE party_type='Supplier' AND party_id=? ORDER BY date,id", [sid]);
+    const payments = queryAll("SELECT id as payment_id,date,'Payment' as type,'' as product_name,'' as product_name_urdu,0 as quantity,0 as rate,CASE WHEN type='Received' THEN amount ELSE 0 END as debit,CASE WHEN type='Paid' THEN amount ELSE 0 END as credit,notes FROM payments WHERE party_type='Supplier' AND party_id=? ORDER BY date,id", [sid]);
     return { supplier, entries: [...purchases, ...purchasePayments, ...payments].sort((a, b) => (a.date || '').localeCompare(b.date || '')) };
   });
 

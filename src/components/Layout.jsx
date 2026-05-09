@@ -11,16 +11,27 @@ export default function Layout() {
   // This prevents the "keyboard stops working" bug.
   useEffect(() => {
     const handleFocusIn = () => {
-      // If focus lands on body and no modal is open, recover it
+      // If focus lands on body, recover it
       if (
         document.activeElement === document.body &&
-        !document.querySelector('.modal-overlay') &&
         pageContentRef.current
       ) {
         // Use requestAnimationFrame to avoid interfering with ongoing focus operations
         requestAnimationFrame(() => {
-          if (document.activeElement === document.body && pageContentRef.current) {
-            pageContentRef.current.focus({ preventScroll: true });
+          if (document.activeElement === document.body) {
+            // Check if a modal is open — if so, focus its first input
+            const modal = document.querySelector('.modal');
+            if (modal) {
+              const firstInput = modal.querySelector('input:not([readonly]), select, textarea, button[type="submit"]');
+              if (firstInput) {
+                firstInput.focus({ preventScroll: true });
+                return;
+              }
+            }
+            // No modal open — focus the page content
+            if (pageContentRef.current) {
+              pageContentRef.current.focus({ preventScroll: true });
+            }
           }
         });
       }
