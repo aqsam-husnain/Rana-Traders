@@ -192,8 +192,8 @@ export default function SupplierKhata() {
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
+      {/* Supplier Info */}
+      <div style={{ marginBottom: 12 }}>
         <div className="card" style={{ padding: '14px 18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <MdPerson style={{ color: 'var(--accent2)', fontSize: '1.2rem' }} />
@@ -206,6 +206,10 @@ export default function SupplierKhata() {
             {!supplier.phone && !supplier.cnic && !supplier.address && <span style={{ color: 'var(--text-muted)' }}>No contact info</span>}
           </div>
         </div>
+      </div>
+
+      {/* Summary Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
         <div className="stat-card"><div className="stat-icon amber"><MdShoppingCart /></div><div className="stat-info"><h3>Opening Balance</h3><div className="stat-value">{formatPKR(openingBalance)}</div></div></div>
         <div className="stat-card"><div className="stat-icon red"><MdShoppingCart /></div><div className="stat-info"><h3>Total Purchases (Debit)</h3><div className="stat-value">{formatPKR(totalDebit)}</div></div></div>
         <div className="stat-card"><div className="stat-icon green"><MdPayment /></div><div className="stat-info"><h3>Total Paid (Credit)</h3><div className="stat-value">{formatPKR(totalCredit)}</div></div></div>
@@ -312,7 +316,7 @@ export default function SupplierKhata() {
             <div className="form-group"><label>Rate (PKR) — نرخ</label><input type="number" step="0.01" required value={purchForm.rate} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(purchForm.quantity, r) : calcCommission(purchForm.quantity, r, customPercent); setPurchForm({ ...purchForm, rate: r, commission: comm }); }} /></div>
 
             {/* Commission with default/custom toggle */}
-            <div className="form-group">
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
               <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>Commission — آڑت</span>
                 <span style={{ display: 'flex', gap: 4 }}>
