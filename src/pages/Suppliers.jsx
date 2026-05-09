@@ -11,7 +11,7 @@ export default function Suppliers() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-  const emptyForm = { name: '', name_urdu: '', phone: '', address: '', cnic: '', opening_balance: 0, status: 'Active' };
+  const emptyForm = { name: '', name_urdu: '', phone: '', address: '', cnic: '', opening_balance: '', status: 'Active' };
   const [form, setForm] = useState(emptyForm);
   const navigate = useNavigate();
 
@@ -59,7 +59,7 @@ export default function Suppliers() {
             <div className="form-group"><label>Name (Urdu) — نام</label><input className="urdu" value={form.name_urdu} onChange={e => setForm({ ...form, name_urdu: e.target.value })} /></div>
             <div className="form-group"><label>Phone</label><input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></div>
             <div className="form-group"><label>CNIC</label><input value={form.cnic} onChange={e => setForm({ ...form, cnic: e.target.value })} /></div>
-            <div className="form-group"><label>Opening Balance (PKR)</label><input type="number" value={form.opening_balance} onChange={e => setForm({ ...form, opening_balance: parseFloat(e.target.value) || 0 })} /></div>
+            <div className="form-group"><label>Opening Balance (PKR)</label><input type="number" step="0.01" value={form.opening_balance} onChange={e => setForm({ ...form, opening_balance: e.target.value })} placeholder="0" /></div>
             <div className="form-group"><label>Address</label><input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} /></div>
             <div className="form-group"><label>Status</label><select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}><option>Active</option><option>Inactive</option></select></div>
           </div>

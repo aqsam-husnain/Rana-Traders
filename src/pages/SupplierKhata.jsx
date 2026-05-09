@@ -108,14 +108,25 @@ export default function SupplierKhata() {
   };
 
   // ─── Export ───
-  const handleExport = (format) => {
+  const getExportColumns = () => ['#', 'Date', 'Type', 'Product', 'Qty', 'Rate', 'Debit', 'Credit', 'Balance'];
+
+  const handleExport = (format, hiddenColumns = []) => {
     if (!entries.length) return;
     let bal = openingBalance;
-    const columns = ['#', 'Date', 'Type', 'Product', 'Qty', 'Rate', 'Debit', 'Credit', 'Balance'];
-    const rows = [['', '', '', '', '', '', '', '', formatPKR(openingBalance)]];
+    const columns = getExportColumns();
+    const mask = (colName, value) => hiddenColumns.includes(colName) ? '—' : value;
+    const rows = [['', '', 'Opening Balance — ابتدائی بیلنس', '', '', '', '', '', formatPKR(openingBalance)]];
     entries.forEach((e, i) => {
       bal += (e.debit || 0) - (e.credit || 0);
-      rows.push([i + 1, formatDate(e.date), e.type, e.product_name || '—', e.quantity || '—', e.rate ? formatPKR(e.rate) : '—', e.debit ? formatPKR(e.debit) : '—', e.credit ? formatPKR(e.credit) : '—', formatPKR(bal)]);
+      const productWithUnit = e.product_name ? `${e.product_name}${e.display_unit ? ` (${e.display_unit})` : ''}` : '—';
+      rows.push([
+        mask('#', i + 1), mask('Date', formatDate(e.date)), mask('Type', e.type),
+        mask('Product', productWithUnit), mask('Qty', e.quantity || '—'),
+        mask('Rate', e.rate ? formatPKR(e.rate) : '—'),
+        mask('Debit', e.debit ? formatPKR(e.debit) : '—'),
+        mask('Credit', e.credit ? formatPKR(e.credit) : '—'),
+        mask('Balance', formatPKR(bal))
+      ]);
     });
     const totalDebit = entries.reduce((s, e) => s + (e.debit || 0), 0);
     const totalCredit = entries.reduce((s, e) => s + (e.credit || 0), 0);
@@ -146,7 +157,7 @@ export default function SupplierKhata() {
           </div>
         </div>
         <div className="flex gap-2">
-          <ExportDropdown onExport={handleExport} disabled={entries.length === 0} />
+          <ExportDropdown onExport={handleExport} disabled={entries.length === 0} columns={getExportColumns()} />
           <button className="btn btn-primary" onClick={openPaymentForm}><MdPayment style={{ marginRight: 4 }} /> Add Payment</button>
           <button className="btn btn-primary" style={{ background: 'var(--accent2)' }} onClick={openPurchaseForm}><MdShoppingCart style={{ marginRight: 4 }} /> New Purchase</button>
         </div>
@@ -244,7 +255,7 @@ export default function SupplierKhata() {
                 {products.filter(p => p.status === 'Active').map(p => <option key={p.id} value={p.id}>{p.name} — {p.name_urdu}</option>)}
               </select>
             </div>
-            <div className="form-group"><label>Unit — اکائی</label><select value={purchForm.unit} onChange={e => setPurchForm({ ...purchForm, unit: e.target.value })}>{units.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}</select></div>
+            <div className="form-group"><label>Unit — اکائی</label><select value={purchForm.unit} onChange={e => setPurchForm({ ...purchForm, unit: e.target.value })}>{!purchForm.unit && <option value="">Select Unit</option>}{units.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}</select></div>
             <div className="form-group"><label>Quantity — مقدار</label><input type="number" step="0.01" required value={purchForm.quantity} onChange={e => { const q = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(q, purchForm.rate) : calcCommission(q, purchForm.rate, customPercent); setPurchForm({ ...purchForm, quantity: q, commission: comm }); }} /></div>
             <div className="form-group"><label>Rate (PKR) — نرخ</label><input type="number" step="0.01" required value={purchForm.rate} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(purchForm.quantity, r) : calcCommission(purchForm.quantity, r, customPercent); setPurchForm({ ...purchForm, rate: r, commission: comm }); }} /></div>
             <div className="form-group">

@@ -150,14 +150,25 @@ export default function BuyerKhata() {
   };
 
   // ─── Export ───
-  const handleExport = (format) => {
+  const getExportColumns = () => ['#', 'Date', 'Type', 'Product', 'Qty', 'Rate', 'Debit', 'Credit', 'Balance'];
+
+  const handleExport = (format, hiddenColumns = []) => {
     if (!entries.length) return;
     let bal = openingBalance;
-    const columns = ['#', 'Date', 'Type', 'Product', 'Qty', 'Rate', 'Debit', 'Credit', 'Balance'];
-    const rows = [['', '', '', '', '', '', '', '', formatPKR(openingBalance)]];
+    const columns = getExportColumns();
+    const mask = (colName, value) => hiddenColumns.includes(colName) ? '—' : value;
+    const rows = [['', '', 'Opening Balance — ابتدائی بیلنس', '', '', '', '', '', formatPKR(openingBalance)]];
     entries.forEach((e, i) => {
       bal += (e.debit || 0) - (e.credit || 0);
-      rows.push([i + 1, formatDate(e.date), e.type, e.product_name || '—', e.quantity || '—', e.rate ? formatPKR(e.rate) : '—', e.debit ? formatPKR(e.debit) : '—', e.credit ? formatPKR(e.credit) : '—', formatPKR(bal)]);
+      const productWithUnit = e.product_name ? `${e.product_name}${e.display_unit ? ` (${e.display_unit})` : ''}` : '—';
+      rows.push([
+        mask('#', i + 1), mask('Date', formatDate(e.date)), mask('Type', e.type),
+        mask('Product', productWithUnit), mask('Qty', e.quantity || '—'),
+        mask('Rate', e.rate ? formatPKR(e.rate) : '—'),
+        mask('Debit', e.debit ? formatPKR(e.debit) : '—'),
+        mask('Credit', e.credit ? formatPKR(e.credit) : '—'),
+        mask('Balance', formatPKR(bal))
+      ]);
     });
     const totalDebit = entries.reduce((s, e) => s + (e.debit || 0), 0);
     const totalCredit = entries.reduce((s, e) => s + (e.credit || 0), 0);
@@ -190,7 +201,7 @@ export default function BuyerKhata() {
           </div>
         </div>
         <div className="flex gap-2">
-          <ExportDropdown onExport={handleExport} disabled={entries.length === 0} />
+          <ExportDropdown onExport={handleExport} disabled={entries.length === 0} columns={getExportColumns()} />
           <button className="btn btn-primary" onClick={openPaymentForm}><MdPayment style={{ marginRight: 4 }} /> Add Payment</button>
           <button className="btn btn-primary" style={{ background: 'var(--green)' }} onClick={openSaleForm}><MdPointOfSale style={{ marginRight: 4 }} /> New Sale</button>
         </div>
@@ -304,6 +315,7 @@ export default function BuyerKhata() {
             <div className="form-group">
               <label>Unit — اکائی</label>
               <select value={saleForm.unit} onChange={e => setSaleForm({ ...saleForm, unit: e.target.value })}>
+                {!saleForm.unit && <option value="">Select Unit</option>}
                 {units.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
               </select>
             </div>
