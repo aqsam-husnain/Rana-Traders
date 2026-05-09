@@ -13,6 +13,7 @@ export default function BuyerKhata() {
   const [buyer, setBuyer] = useState(null);
   const [ledger, setLedger] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [selectedEntry, setSelectedEntry] = useState(null);
 
   // Payment form
   const [showPaymentForm, setShowPaymentForm] = useState(false);
@@ -263,35 +264,39 @@ export default function BuyerKhata() {
         </div>
         <div className="data-table-wrapper" style={{ border: 'none' }}>
           <table className="data-table">
-            <thead><tr><th>#</th><th>Date</th><th>Type</th><th>Product</th><th>Qty</th><th>Rate</th><th>Debit</th><th>Credit</th><th>Balance</th><th></th></tr></thead>
+            <thead><tr><th>#</th><th>Date</th><th>Type</th><th>Product</th><th>Qty</th><th>Rate</th><th>Comm.</th><th>Debit</th><th>Credit</th><th>Payment</th><th>Balance</th><th></th></tr></thead>
             <tbody>
-              <tr style={{ background: 'var(--glass)' }}><td></td><td colSpan={5}><strong>Opening Balance — ابتدائی بیلنس</strong></td><td></td><td></td><td className="amount" style={{ fontWeight: 700 }}>{formatPKR(openingBalance)}</td><td></td></tr>
+              <tr style={{ background: 'var(--glass)' }}><td></td><td colSpan={5}><strong>Opening Balance — ابتدائی بیلنس</strong></td><td></td><td></td><td></td><td></td><td className="amount" style={{ fontWeight: 700 }}>{formatPKR(openingBalance)}</td><td></td></tr>
               {(() => { let bal = openingBalance; return entries.map((e, i) => {
                 bal += (e.debit || 0) - (e.credit || 0);
                 return (
-                  <tr key={i}>
+                  <tr key={i} onClick={() => (e.type === 'Sale' && e.sale_id) ? setSelectedEntry(e) : null} style={(e.type === 'Sale' && e.sale_id) ? { cursor: 'pointer' } : {}} title={(e.type === 'Sale' && e.sale_id) ? 'Click to view details' : ''}>
                     <td>{i + 1}</td>
                     <td>{formatDate(e.date)}</td>
                     <td><span className={`badge ${e.type === 'Sale' ? 'badge-regular' : 'badge-active'}`}>{e.type}</span></td>
                     <td>{e.product_name || '—'}{e.product_name_urdu ? <><br/><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.product_name_urdu}</span></> : ''}</td>
                     <td>{e.quantity || '—'}</td>
                     <td>{e.rate ? formatPKR(e.rate) : '—'}</td>
+                    <td className="amount">{e.commission ? formatPKR(e.commission) : '—'}</td>
                     <td className="amount positive">{e.debit ? formatPKR(e.debit) : '—'}</td>
                     <td className="amount negative">{e.credit ? formatPKR(e.credit) : '—'}</td>
+                    <td>{e.type === 'Sale' && e.payment_status ? <span className={`badge ${e.payment_status === 'Received' ? 'badge-active' : e.payment_status === 'Partial' ? 'badge-walkin' : 'badge-inactive'}`}>{e.payment_status}</span> : (e.type === 'Payment' ? <span className="badge badge-active">Received</span> : '—')}</td>
                     <td className="amount" style={{ fontWeight: 700 }}>{formatPKR(bal)}</td>
                     <td>
-                      {e.type === 'Payment' && e.payment_id ? <button className="btn btn-sm btn-danger" onClick={() => handleDeletePayment(e.payment_id)} title="Delete Payment"><MdDelete /></button> : ''}
-                      {e.type === 'Sale' && e.sale_id ? <button className="btn btn-sm btn-danger" onClick={() => handleDeleteSale(e.sale_id)} title="Delete Sale"><MdDelete /></button> : ''}
+                      {e.type === 'Payment' && e.payment_id ? <button className="btn btn-sm btn-danger" onClick={(ev) => { ev.stopPropagation(); handleDeletePayment(e.payment_id); }} title="Delete Payment"><MdDelete /></button> : ''}
+                      {e.type === 'Sale' && e.sale_id ? <button className="btn btn-sm btn-danger" onClick={(ev) => { ev.stopPropagation(); handleDeleteSale(e.sale_id); }} title="Delete Sale"><MdDelete /></button> : ''}
                     </td>
                   </tr>
                 );
               }); })()}
-              {entries.length === 0 && <tr><td colSpan={10} className="text-center" style={{ padding: 40, color: 'var(--text-muted)' }}>No entries yet — ابھی تک کوئی اندراج نہیں</td></tr>}
+              {entries.length === 0 && <tr><td colSpan={12} className="text-center" style={{ padding: 40, color: 'var(--text-muted)' }}>No entries yet — ابھی تک کوئی اندراج نہیں</td></tr>}
               {entries.length > 0 && (
                 <tr style={{ background: 'var(--glass)', fontWeight: 700 }}>
                   <td></td><td colSpan={5}><strong>Closing Balance — حتمی بیلنس</strong></td>
+                  <td></td>
                   <td className="amount positive">{formatPKR(totalDebit)}</td>
                   <td className="amount negative">{formatPKR(totalCredit)}</td>
+                  <td></td>
                   <td className="amount" style={{ fontWeight: 800, fontSize: '1rem', color: finalBalance > 0 ? 'var(--red)' : 'var(--green)' }}>{formatPKR(finalBalance)}</td>
                   <td></td>
                 </tr>
@@ -440,6 +445,83 @@ export default function BuyerKhata() {
           <div className="totals-bar"><span>Total: <strong>{formatPKR(saleTotal)}</strong></span><span>Net: <strong className="amount positive" style={{ fontSize: '1.1rem' }}>{formatPKR(saleNet)}</strong></span></div>
           <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => setShowSaleForm(false)}>Cancel</button><button type="submit" className="btn btn-primary" disabled={!!stockError}>Save Sale</button></div>
         </form>
+      </Modal>
+
+      {/* Transaction Detail Modal */}
+      <Modal show={!!selectedEntry} onClose={() => setSelectedEntry(null)} title={<>Sale Details — <span className="urdu">فروخت کی تفصیلات</span></>}>
+        {selectedEntry && (() => {
+          const e = selectedEntry;
+          const remaining = (e.net_amount || 0) - (e.amount_paid || 0);
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Product — جنس</div>
+                  <div style={{ fontWeight: 700, fontSize: '1rem' }}>{e.product_name}{e.display_unit ? <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> ({e.display_unit})</span> : ''}</div>
+                </div>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Date — تاریخ</div>
+                  <div style={{ fontWeight: 600 }}>{formatDate(e.date)}</div>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Quantity — مقدار</div>
+                  <div style={{ fontWeight: 700 }}>{formatNumber(e.quantity)} {e.display_unit || ''}</div>
+                </div>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Rate — نرخ</div>
+                  <div style={{ fontWeight: 700 }}>{formatPKR(e.rate)}</div>
+                </div>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Total — کل رقم</div>
+                  <div style={{ fontWeight: 700 }}>{formatPKR(e.total)}</div>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Commission — آڑت</div>
+                  <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{formatPKR(e.commission || 0)}</div>
+                </div>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Bardana — بوری</div>
+                  <div style={{ fontWeight: 700 }}>{formatPKR(e.bardana || 0)}</div>
+                </div>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Labour — مزدوری</div>
+                  <div style={{ fontWeight: 700 }}>{formatPKR(e.labour || 0)}</div>
+                </div>
+              </div>
+              <div style={{ padding: '14px 18px', background: 'linear-gradient(135deg, rgba(212,175,55,0.1), rgba(212,175,55,0.05))', borderRadius: 12, border: '1px solid var(--accent)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Net Amount — خالص رقم</div>
+                <div style={{ fontWeight: 800, fontSize: '1.3rem', color: 'var(--accent)' }}>{formatPKR(e.net_amount)}</div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div style={{ padding: '12px 16px', borderRadius: 10, border: '1px solid var(--border)', background: e.payment_status === 'Received' ? 'rgba(76,175,80,0.08)' : e.payment_status === 'Partial' ? 'rgba(255,152,0,0.08)' : 'rgba(244,67,54,0.08)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Payment Status — ادائیگی</div>
+                  <div><span className={`badge ${e.payment_status === 'Received' ? 'badge-active' : e.payment_status === 'Partial' ? 'badge-walkin' : 'badge-inactive'}`} style={{ fontSize: '0.85rem' }}>{e.payment_status || 'To Receive'}</span></div>
+                </div>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Received — وصول شدہ</div>
+                  <div style={{ fontWeight: 700, color: 'var(--green)' }}>{formatPKR(e.amount_paid || 0)}</div>
+                </div>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Remaining — بقایا</div>
+                  <div style={{ fontWeight: 700, color: remaining > 0 ? 'var(--red)' : 'var(--green)' }}>{formatPKR(remaining > 0 ? remaining : 0)}</div>
+                </div>
+              </div>
+              {e.payment_mode && e.payment_mode !== 'On Account' && <div style={{ padding: '10px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Payment Method — طریقہ</div>
+                <div style={{ fontWeight: 600 }}>{e.payment_mode}</div>
+              </div>}
+              {e.notes && <div style={{ padding: '10px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Notes — نوٹ</div>
+                <div>{e.notes}</div>
+              </div>}
+            </div>
+          );
+        })()}
+        <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => setSelectedEntry(null)}>Close</button></div>
       </Modal>
     </div>
   );
