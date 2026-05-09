@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MdAdd, MdEdit, MdDelete, MdSearch } from 'react-icons/md';
 import { useNavigate } from 'react-router-dom';
 import { formatPKR, todayISO } from '../utils/formatters';
+import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
@@ -19,7 +20,7 @@ export default function Buyers() {
   const load = async () => { const d = await window.api.getBuyers(); setBuyers(d.filter(c => c.type === 'Regular')); };
   const handleSave = async (e) => { e.preventDefault(); if (editing) await window.api.updateBuyer(editing.id, { ...form, type: 'Regular' }); else await window.api.addBuyer({ ...form, type: 'Regular' }); setShowForm(false); setEditing(null); setForm(emptyForm); load(); };
   const handleEdit = (c) => { setEditing(c); setForm(c); setShowForm(true); };
-  const handleDelete = async (id) => { if (confirm('Delete this buyer?')) { await window.api.deleteBuyer(id); load(); } };
+  const handleDelete = async (id) => { if (confirmAction('Delete this buyer?')) { await window.api.deleteBuyer(id); load(); } };
   const filtered = buyers.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || (c.name_urdu || '').includes(search) || (c.phone || '').includes(search));
 
   const handleExport = (format) => {
@@ -47,7 +48,7 @@ export default function Buyers() {
         <table className="data-table">
           <thead><tr><th>#</th><th>Name</th><th>Name (Urdu)</th><th>Phone</th><th>CNIC</th><th>Opening Bal.</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
-            {filtered.map((c, i) => (<tr key={c.id}><td>{i + 1}</td><td style={{ fontWeight: 600, cursor: 'pointer', color: 'var(--accent)' }} onClick={() => navigate(`/buyer/${c.id}`)} title="View Khata / Ledger">{c.name}</td><td className="urdu">{c.name_urdu || '—'}</td><td>{c.phone || '—'}</td><td>{c.cnic || '—'}</td><td className="amount">{c.opening_balance?.toLocaleString() || 0}</td><td><span className={`badge ${c.status === 'Active' ? 'badge-active' : 'badge-inactive'}`}>{c.status}</span></td><td><div className="flex gap-2"><button className="btn btn-sm btn-secondary" onClick={() => handleEdit(c)} title="Edit"><MdEdit /></button><button className="btn btn-sm btn-danger" onClick={() => handleDelete(c.id)} title="Delete"><MdDelete /></button></div></td></tr>))}
+            {filtered.map((c, i) => (<tr key={c.id} onClick={() => navigate(`/buyer/${c.id}`)} style={{ cursor: 'pointer' }} title="View Khata / Ledger"><td>{i + 1}</td><td style={{ fontWeight: 600, color: 'var(--accent)' }}>{c.name}</td><td className="urdu">{c.name_urdu || '—'}</td><td>{c.phone || '—'}</td><td>{c.cnic || '—'}</td><td className="amount">{c.opening_balance?.toLocaleString() || 0}</td><td><span className={`badge ${c.status === 'Active' ? 'badge-active' : 'badge-inactive'}`}>{c.status}</span></td><td><div className="flex gap-2"><button className="btn btn-sm btn-secondary" onClick={(e) => { e.stopPropagation(); handleEdit(c); }} title="Edit"><MdEdit /></button><button className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }} title="Delete"><MdDelete /></button></div></td></tr>))}
             {filtered.length === 0 && <tr><td colSpan={8} className="text-center" style={{ padding: 40, color: 'var(--text-muted)' }}>No buyers found</td></tr>}
           </tbody>
         </table>

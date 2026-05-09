@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MdAdd, MdDelete, MdPerson, MdPersonOutline, MdWarning, MdClose } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
+import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
@@ -138,7 +139,7 @@ export default function Sales() {
     setShowForm(false); load();
   };
 
-  const handleDelete = async (id) => { if (confirm('Delete this sale entry?')) { await window.api.deleteSale(id); load(); } };
+  const handleDelete = async (id) => { if (confirmAction('Delete this sale entry?')) { await window.api.deleteSale(id); load(); } };
 
   const handleExport = (format) => {
     if (sales.length === 0) return;

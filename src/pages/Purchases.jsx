@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MdAdd, MdDelete, MdPerson, MdPersonOutline, MdClose } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
+import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
@@ -96,7 +97,7 @@ export default function Purchases() {
     });
     setShowForm(false); load();
   };
-  const handleDelete = async (id) => { if (confirm('Delete this purchase?')) { await window.api.deletePurchase(id); load(); } };
+  const handleDelete = async (id) => { if (confirmAction('Delete this purchase?')) { await window.api.deletePurchase(id); load(); } };
 
   const handleExport = (format) => {
     if (purchases.length === 0) return;

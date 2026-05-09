@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MdAdd, MdEdit, MdDelete, MdSearch, MdClose } from 'react-icons/md';
 import Modal from '../components/Modal';
 import { formatNumber } from '../utils/formatters';
+import { confirmAction } from '../utils/confirmDialog';
 
 export default function Products() {
   const [products, setProducts] = useState([]);
@@ -50,7 +51,7 @@ export default function Products() {
   };
 
   const handleDelete = async (id) => {
-    if (confirm('Delete?')) { await window.api.deleteProduct(id); load(); }
+    if (confirmAction('Delete?')) { await window.api.deleteProduct(id); load(); }
   };
 
   const handleAddUnit = async () => {
@@ -67,7 +68,7 @@ export default function Products() {
   const handleDeleteUnit = async (unitId, unitName) => {
     const inUse = products.some(p => p.unit === unitName);
     if (inUse) { alert(`Cannot delete "${unitName}" — it is being used by a product.`); return; }
-    if (confirm(`Delete unit "${unitName}"?`)) {
+    if (confirmAction(`Delete unit "${unitName}"?`)) {
       await window.api.deleteUnit(unitId);
       setUnits(await window.api.getUnits());
     }
