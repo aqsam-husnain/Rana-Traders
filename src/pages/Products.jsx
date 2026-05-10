@@ -3,6 +3,8 @@ import { MdAdd, MdEdit, MdDelete, MdSearch, MdClose } from 'react-icons/md';
 import Modal from '../components/Modal';
 import { formatNumber } from '../utils/formatters';
 import { confirmAction } from '../utils/confirmDialog';
+import { useToast } from '../components/Toast';
+import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
 
 export default function Products() {
   const [products, setProducts] = useState([]);
@@ -13,6 +15,7 @@ export default function Products() {
   const [form, setForm] = useState({ name: '', name_urdu: '', unit: '', commission_rate: '', opening_stock: '', status: 'Active' });
   const [newUnit, setNewUnit] = useState('');
   const [showUnitInput, setShowUnitInput] = useState(false);
+  const toast = useToast();
 
   // Ref always holds the latest form — immune to stale closures
   const formRef = useRef(form);
@@ -34,12 +37,26 @@ export default function Products() {
   const handleSave = async (e) => {
     e.preventDefault();
     const f = formRef.current;
+    if (!f.name.trim()) return toast.error('Product name is required — جنس کا نام ضروری ہے');
+
+    // Check for duplicate product name (case-insensitive)
+    const nameLower = f.name.trim().toLowerCase();
+    const nameUrduTrimmed = (f.name_urdu || '').trim();
+    const duplicate = products.find(p => {
+      if (editing && p.id === editing.id) return false; // skip self when editing
+      if (p.name.trim().toLowerCase() === nameLower) return true;
+      if (nameUrduTrimmed && (p.name_urdu || '').trim() === nameUrduTrimmed) return true;
+      return false;
+    });
+    if (duplicate) return toast.error(`A product named "${duplicate.name}" already exists — یہ جنس پہلے سے موجود ہے`);
+
     if (editing) await window.api.updateProduct(editing.id, f);
     else await window.api.addProduct(f);
     setShowForm(false);
     setEditing(null);
     resetForm();
     load();
+    toast.success(editing ? 'Product updated! — جنس اپ ڈیٹ ہو گئی' : 'Product added! — جنس شامل ہو گئی');
   };
 
   const handleEdit = (p) => {
@@ -51,7 +68,7 @@ export default function Products() {
   };
 
   const handleDelete = async (id) => {
-    if (confirmAction('Delete?')) { await window.api.deleteProduct(id); load(); }
+    if (confirmAction('Delete?')) { await window.api.deleteProduct(id); load(); toast.success('Product deleted — جنس حذف ہو گئی'); }
   };
 
   const handleAddUnit = async () => {
@@ -67,7 +84,7 @@ export default function Products() {
 
   const handleDeleteUnit = async (unitId, unitName) => {
     const inUse = products.some(p => p.unit === unitName);
-    if (inUse) { alert(`Cannot delete "${unitName}" — it is being used by a product.`); return; }
+    if (inUse) { toast.error(`Cannot delete "${unitName}" — it is being used by a product.`); return; }
     if (confirmAction(`Delete unit "${unitName}"?`)) {
       await window.api.deleteUnit(unitId);
       setUnits(await window.api.getUnits());
@@ -173,11 +190,11 @@ export default function Products() {
 
             <div className="form-group">
               <label>Commission Rate (%)</label>
-              <input type="number" step="0.01" value={form.commission_rate} onChange={e => updateField('commission_rate', e.target.value)} placeholder="0" />
+              <input type="number" step="0.01" value={form.commission_rate} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => updateField('commission_rate', e.target.value)} placeholder="0" />
             </div>
             <div className="form-group">
               <label>Opening Stock — ابتدائی اسٹاک</label>
-              <input type="number" step="0.01" value={form.opening_stock} onChange={e => updateField('opening_stock', e.target.value)} placeholder="0" />
+              <input type="number" step="0.01" value={form.opening_stock} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => updateField('opening_stock', e.target.value)} placeholder="0" />
               <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
                 Stock you already have before any purchase entry
               </span>

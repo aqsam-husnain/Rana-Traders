@@ -5,8 +5,11 @@ import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
+import { useToast } from '../components/Toast';
+import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
 
 export default function Sales() {
+  const toast = useToast();
   const [sales, setSales] = useState([]);
   const [buyers, setBuyers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -109,11 +112,11 @@ export default function Sales() {
   const handleSave = async (e) => {
     e.preventDefault();
     const qty = parseFloat(form.quantity) || 0;
-    if (!form.product_id) return alert('Please select a product');
-    if (qty <= 0) return alert('Quantity must be greater than 0');
+    if (!form.product_id) return toast.error('Please select a product — جنس منتخب کریں');
+    if (qty <= 0) return toast.error('Quantity must be greater than 0 — مقدار صفر سے زیادہ ہونی چاہیے');
     const currentStock = await window.api.getProductStock(parseInt(form.product_id));
-    if (currentStock <= 0) return alert('Cannot save sale — this product is out of stock!\n\nاس جنس کا اسٹاک ختم ہو گیا ہے');
-    if (qty > currentStock) return alert(`Cannot save sale — not enough stock!\nAvailable: ${formatNumber(currentStock)}\nRequested: ${formatNumber(qty)}\n\nاتنا اسٹاک دستیاب نہیں ہے`);
+    if (currentStock <= 0) return toast.error('Cannot save sale — this product is out of stock! اس جنس کا اسٹاک ختم ہو گیا ہے');
+    if (qty > currentStock) return toast.error(`Cannot save sale — not enough stock! Available: ${formatNumber(currentStock)}, Requested: ${formatNumber(qty)}`);
 
     let buyerId;
     if (partyType === 'Walk-in') {
@@ -121,7 +124,7 @@ export default function Sales() {
       buyerId = result.lastInsertRowid;
     } else {
       buyerId = parseInt(form.buyer_id);
-      if (!buyerId) return alert('Please select a buyer');
+      if (!buyerId) return toast.error('Please select a buyer — خریدار منتخب کریں');
     }
 
     const amountPaid = parseFloat(form.amount_paid) || 0;
@@ -137,11 +140,12 @@ export default function Sales() {
       unit: form.unit || null, commission_type: commissionMode
     });
     setShowForm(false); load();
+    toast.success('Sale saved successfully! — فروخت محفوظ ہو گئی');
   };
 
-  const handleDelete = async (id) => { if (confirmAction('Delete this sale entry?')) { await window.api.deleteSale(id); load(); } };
+  const handleDelete = async (id) => { if (confirmAction('Delete this sale entry?')) { await window.api.deleteSale(id); load(); toast.success('Sale deleted — فروخت حذف ہو گئی'); } };
 
-  const handleExport = (format) => {
+  const handleExport = async (format) => {
     if (sales.length === 0) return;
     const columns = ['#', 'Date', 'Buyer / خریدار', 'Product / جنس', 'Qty', 'Unit', 'Rate', 'Total', 'Commission', 'Net Amount', 'Payment', 'Received'];
     const rows = sales.map((s, i) => [i + 1, formatDate(s.date), (s.buyer_name || '—') + (s.buyer_name_urdu ? '\n' + s.buyer_name_urdu : ''), s.product_name + (s.product_name_urdu ? '\n' + s.product_name_urdu : ''), formatNumber(s.quantity), s.display_unit || s.product_unit || '', formatPKR(s.rate), formatPKR(s.total), formatPKR(s.commission), formatPKR(s.net_amount), s.payment_status || 'To Receive', formatPKR(s.amount_paid || 0)]);
@@ -152,9 +156,11 @@ export default function Sales() {
       { label: 'Entries', value: String(sales.length) },
     ];
     const exportData = { title: 'Sales Report — فروخت رپورٹ', columns, rows, summary, dateRange: '' };
-    if (format === 'pdf') exportToPDF({ ...exportData, fileName: `Sales_Report_${todayISO()}.pdf` });
-    else if (format === 'xlsx') exportToXLSX({ ...exportData, fileName: `Sales_Report_${todayISO()}.xlsx` });
-    else if (format === 'csv') exportToCSV({ ...exportData, fileName: `Sales_Report_${todayISO()}.csv` });
+    let saved = false;
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Sales_Report_${todayISO()}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Sales_Report_${todayISO()}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Sales_Report_${todayISO()}.csv` });
+    if (saved) toast.success('File exported successfully!');
   };
 
   const statusBadge = (status) => {
@@ -248,12 +254,13 @@ export default function Sales() {
             <div className="form-group">
               <label>Quantity — مقدار</label>
               <input type="number" step="0.01" required value={form.quantity}
+                onKeyDown={blockInvalidChars} onWheel={preventScrollChange}
                 onChange={e => { const q = e.target.value; validateQuantity(q); const comm = commissionMode === 'default' ? recalcCommission(q, form.rate) : calcCommission(q, form.rate, customPercent); setForm({ ...form, quantity: q, commission: comm }); }}
                 style={stockError ? { borderColor: 'var(--red)', boxShadow: '0 0 0 3px var(--red-glow)' } : {}}
               />
               {stockError && <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: '0.75rem', color: 'var(--red)', fontWeight: 600 }}><MdWarning style={{ fontSize: '0.85rem' }} /> {stockError}</div>}
             </div>
-            <div className="form-group"><label>Rate (PKR) — نرخ</label><input type="number" step="0.01" required value={form.rate} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(form.quantity, r) : calcCommission(form.quantity, r, customPercent); setForm({ ...form, rate: r, commission: comm }); }} /></div>
+            <div className="form-group"><label>Rate (PKR) — نرخ</label><input type="number" step="0.01" required value={form.rate} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(form.quantity, r) : calcCommission(form.quantity, r, customPercent); setForm({ ...form, rate: r, commission: comm }); }} /></div>
 
             {/* Commission with default/custom toggle */}
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -288,8 +295,8 @@ export default function Sales() {
               )}
             </div>
 
-            <div className="form-group"><label>Bardana — بوری</label><input type="number" step="0.01" value={form.bardana} onChange={e => setForm({ ...form, bardana: e.target.value })} /></div>
-            <div className="form-group"><label>Labour — مزدوری</label><input type="number" step="0.01" value={form.labour} onChange={e => setForm({ ...form, labour: e.target.value })} /></div>
+            <div className="form-group"><label>Bardana — بوری</label><input type="number" step="0.01" value={form.bardana} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setForm({ ...form, bardana: e.target.value })} /></div>
+            <div className="form-group"><label>Labour — مزدوری</label><input type="number" step="0.01" value={form.labour} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setForm({ ...form, labour: e.target.value })} /></div>
 
             {/* Payment from Buyer section */}
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -308,6 +315,7 @@ export default function Sales() {
                 <>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
                     <input type="number" step="0.01" value={form.amount_paid}
+                      onKeyDown={blockInvalidChars} onWheel={preventScrollChange}
                       onChange={e => {
                         const val = e.target.value;
                         const paid = parseFloat(val) || 0;
@@ -319,6 +327,14 @@ export default function Sales() {
                       onClick={() => setForm({ ...form, amount_paid: net, payment_status: 'Received' })}
                       style={{ whiteSpace: 'nowrap', fontSize: '0.75rem' }}>Full Amount</button>
                   </div>
+                  {/* Real-time payment summary */}
+                  {(() => { const paid = parseFloat(form.amount_paid) || 0; const remaining = net - paid; return (
+                    <div className="payment-summary">
+                      <div className="payment-summary-item"><div className="payment-summary-label">Net Amount — خالص</div><div className="payment-summary-value" style={{ color: 'var(--text-primary)' }}>{formatPKR(net)}</div></div>
+                      <div className="payment-summary-item"><div className="payment-summary-label">Receiving — وصولی</div><div className="payment-summary-value" style={{ color: 'var(--green)' }}>{formatPKR(paid)}</div></div>
+                      <div className="payment-summary-item"><div className="payment-summary-label">Remaining — بقایا</div><div className="payment-summary-value" style={{ color: remaining > 0 ? 'var(--red)' : 'var(--green)' }}>{formatPKR(remaining > 0 ? remaining : 0)}</div></div>
+                    </div>
+                  ); })()}
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label style={{ fontSize: '0.78rem' }}>Payment Method — ادائیگی کا طریقہ</label>
                     <select value={form.payment_mode} onChange={e => setForm({ ...form, payment_mode: e.target.value })}>

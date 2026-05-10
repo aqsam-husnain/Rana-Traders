@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { formatPKR, formatDate, todayISO } from '../utils/formatters';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
+import { useToast } from '../components/Toast';
 
 export default function Ledger() {
   const [searchParams] = useSearchParams();
@@ -11,6 +12,7 @@ export default function Ledger() {
   const [suppliers, setSuppliers] = useState([]);
   const [selectedId, setSelectedId] = useState(searchParams.get('id') || '');
   const [ledger, setLedger] = useState(null);
+  const toast = useToast();
 
   useEffect(() => {
     window.api.getBuyers().then(all => setBuyers(all.filter(c => c.type === 'Regular')));
@@ -48,14 +50,16 @@ export default function Ledger() {
     return { columns, rows, summary, partyName };
   };
 
-  const handleExport = (format) => {
+  const handleExport = async (format) => {
     if (!ledger || !ledger.entries || ledger.entries.length === 0) return;
     const { columns, rows, summary, partyName } = buildExportData();
     const typeLabel = tab === 'buyer' ? 'Buyer' : 'Supplier';
     const exportData = { title: `${typeLabel} Ledger — ${partyName} — کھاتا`, columns, rows, summary, dateRange: '' };
-    if (format === 'pdf') exportToPDF({ ...exportData, fileName: `Ledger_${partyName.replace(/\s+/g, '_')}_${todayISO()}.pdf` });
-    else if (format === 'xlsx') exportToXLSX({ ...exportData, fileName: `Ledger_${partyName.replace(/\s+/g, '_')}_${todayISO()}.xlsx` });
-    else if (format === 'csv') exportToCSV({ ...exportData, fileName: `Ledger_${partyName.replace(/\s+/g, '_')}_${todayISO()}.csv` });
+    let saved = false;
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Ledger_${partyName.replace(/\s+/g, '_')}_${todayISO()}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Ledger_${partyName.replace(/\s+/g, '_')}_${todayISO()}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Ledger_${partyName.replace(/\s+/g, '_')}_${todayISO()}.csv` });
+    if (saved) toast.success('File exported successfully!');
   };
 
   return (

@@ -5,6 +5,8 @@ import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
+import { useToast } from '../components/Toast';
+import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
 
 export default function Payments() {
   const [payments, setPayments] = useState([]);
@@ -12,6 +14,7 @@ export default function Payments() {
   const [suppliers, setSuppliers] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ party_type: 'Buyer', party_id: '', date: todayISO(), amount: '', type: 'Received', mode: 'Cash', reference: '', notes: '' });
+  const toast = useToast();
 
   useEffect(() => { load(); }, []);
   const load = async () => {
@@ -26,11 +29,12 @@ export default function Payments() {
     setShowForm(false);
     setForm({ party_type: 'Customer', party_id: '', date: todayISO(), amount: '', type: 'Received', mode: 'Cash', reference: '', notes: '' });
     load();
+    toast.success('Payment saved! — ادائیگی محفوظ ہو گئی');
   };
-  const handleDelete = async (id) => { if (confirmAction('Delete?')) { await window.api.deletePayment(id); load(); } };
+  const handleDelete = async (id) => { if (confirmAction('Delete?')) { await window.api.deletePayment(id); load(); toast.success('Payment deleted — ادائیگی حذف ہو گئی'); } };
   const partyList = form.party_type === 'Buyer' ? buyers : suppliers;
 
-  const handleExport = (format) => {
+  const handleExport = async (format) => {
     if (payments.length === 0) return;
     const columns = ['#', 'Date', 'Party Type', 'Party Name / نام', 'Type', 'Amount', 'Mode', 'Reference'];
     const rows = payments.map((p, i) => [i + 1, formatDate(p.date), p.party_type, (p.party_name || '—') + (p.party_name_urdu ? '\n' + p.party_name_urdu : ''), p.type, formatPKR(p.amount), p.mode, p.reference || '—']);
@@ -38,9 +42,11 @@ export default function Payments() {
     const totalPaid = payments.filter(p => p.type === 'Paid').reduce((s, p) => s + (p.amount || 0), 0);
     const summary = [{ label: 'Total Received / کل وصولی', value: formatPKR(totalReceived) }, { label: 'Total Paid / کل ادائیگی', value: formatPKR(totalPaid) }, { label: 'Entries', value: String(payments.length) }];
     const exportData = { title: 'Payments Report — ادائیگی رپورٹ', columns, rows, summary, dateRange: '' };
-    if (format === 'pdf') exportToPDF({ ...exportData, fileName: `Payments_Report_${todayISO()}.pdf` });
-    else if (format === 'xlsx') exportToXLSX({ ...exportData, fileName: `Payments_Report_${todayISO()}.xlsx` });
-    else if (format === 'csv') exportToCSV({ ...exportData, fileName: `Payments_Report_${todayISO()}.csv` });
+    let saved = false;
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Payments_Report_${todayISO()}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Payments_Report_${todayISO()}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Payments_Report_${todayISO()}.csv` });
+    if (saved) toast.success('File exported successfully!');
   };
 
   return (
@@ -67,7 +73,7 @@ export default function Payments() {
             <div className="form-group"><label>Party Type</label><select value={form.party_type} onChange={e => setForm({ ...form, party_type: e.target.value, party_id: '', type: e.target.value === 'Buyer' ? 'Received' : 'Paid' })}><option>Buyer</option><option>Supplier</option></select></div>
             <div className="form-group"><label>{form.party_type}</label><select required value={form.party_id} onChange={e => setForm({ ...form, party_id: e.target.value })}><option value="">Select {form.party_type}</option>{partyList.filter(p => p.status === 'Active').map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
             <div className="form-group"><label>Date & Time</label><input type="datetime-local" required value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
-            <div className="form-group"><label>Amount (PKR)</label><input type="number" step="0.01" required value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} /></div>
+            <div className="form-group"><label>Amount (PKR)</label><input type="number" step="0.01" required value={form.amount} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setForm({ ...form, amount: e.target.value })} /></div>
             <div className="form-group"><label>Type</label><select value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}><option>Received</option><option>Paid</option></select></div>
             <div className="form-group"><label>Mode</label><select value={form.mode} onChange={e => setForm({ ...form, mode: e.target.value })}><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select></div>
             <div className="form-group"><label>Reference / Cheque #</label><input value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} /></div>

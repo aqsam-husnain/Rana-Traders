@@ -6,10 +6,13 @@ import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
+import { useToast } from '../components/Toast';
+import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
 
 export default function SupplierKhata() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const [supplier, setSupplier] = useState(null);
   const [ledger, setLedger] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -64,6 +67,7 @@ export default function SupplierKhata() {
     });
     setShowPaymentForm(false);
     loadAll();
+    toast.success('Payment saved successfully! — ادائیگی محفوظ ہو گئی');
   };
 
   // ─── Purchase handlers ───
@@ -110,8 +114,8 @@ export default function SupplierKhata() {
   const handlePurchaseSave = async (e) => {
     e.preventDefault();
     const qty = parseFloat(purchForm.quantity) || 0;
-    if (!purchForm.product_id) return alert('Please select a product');
-    if (qty <= 0) return alert('Quantity must be greater than 0');
+    if (!purchForm.product_id) return toast.error('Please select a product — جنس منتخب کریں');
+    if (qty <= 0) return toast.error('Quantity must be greater than 0');
 
     const amountPaid = parseFloat(purchForm.amount_paid) || 0;
     const paymentStatus = updatePaymentStatus(amountPaid);
@@ -127,19 +131,20 @@ export default function SupplierKhata() {
     });
     setShowPurchaseForm(false);
     loadAll();
+    toast.success('Purchase saved successfully! — خریداری محفوظ ہو گئی');
   };
 
   const handleDeletePayment = async (paymentId) => {
-    if (confirmAction('Delete this payment entry?')) { await window.api.deletePayment(paymentId); loadAll(); }
+    if (confirmAction('Delete this payment entry?')) { await window.api.deletePayment(paymentId); loadAll(); toast.success('Payment deleted — ادائیگی حذف ہو گئی'); }
   };
   const handleDeletePurchase = async (purchaseId) => {
-    if (confirmAction('Delete this purchase entry?')) { await window.api.deletePurchase(purchaseId); loadAll(); }
+    if (confirmAction('Delete this purchase entry?')) { await window.api.deletePurchase(purchaseId); loadAll(); toast.success('Purchase deleted — خریداری حذف ہو گئی'); }
   };
 
   // ─── Export ───
   const getExportColumns = () => ['#', 'Date', 'Type', 'Product', 'Qty', 'Rate', 'Debit', 'Credit', 'Balance'];
 
-  const handleExport = (format, hiddenColumns = []) => {
+  const handleExport = async (format, hiddenColumns = []) => {
     if (!entries.length) return;
     let bal = openingBalance;
     const columns = getExportColumns();
@@ -162,9 +167,11 @@ export default function SupplierKhata() {
     const summary = [{ label: 'Supplier', value: supplier?.name || '' }, { label: 'Total Debit', value: formatPKR(totalDebit) }, { label: 'Total Credit', value: formatPKR(totalCredit) }, { label: 'Final Balance', value: formatPKR(bal) }];
     const exportData = { title: `Supplier Khata — ${supplier?.name} — کھاتا`, columns, rows, summary, dateRange: '' };
     const safeName = (supplier?.name || 'Supplier').replace(/\s+/g, '_');
-    if (format === 'pdf') exportToPDF({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.pdf` });
-    else if (format === 'xlsx') exportToXLSX({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.xlsx` });
-    else if (format === 'csv') exportToCSV({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.csv` });
+    let saved = false;
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.csv` });
+    if (saved) toast.success('File exported successfully!');
   };
 
   if (loading) return <div className="empty-state"><p>Loading...</p></div>;
@@ -270,8 +277,8 @@ export default function SupplierKhata() {
         <form onSubmit={handlePaymentSave}>
           <div className="form-grid">
             <div className="form-group"><label>Date & Time</label><input type="datetime-local" required value={payForm.date} onChange={e => setPayForm({ ...payForm, date: e.target.value })} /></div>
-            <div className="form-group"><label>Amount (PKR)</label><input type="number" step="0.01" required value={payForm.amount} onChange={e => setPayForm({ ...payForm, amount: e.target.value })} /></div>
-            <div className="form-group"><label>Type</label><select value={payForm.type} onChange={e => setPayForm({ ...payForm, type: e.target.value })}><option>Paid</option><option>Received</option></select></div>
+            <div className="form-group"><label>Amount (PKR)</label><input type="number" step="0.01" required value={payForm.amount} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setPayForm({ ...payForm, amount: e.target.value })} /></div>
+            <div className="form-group"><label>Type</label><div style={{ padding: '10px 14px', background: 'var(--accent2-glow)', border: '1px solid var(--accent2)', borderRadius: 10, fontWeight: 600, color: 'var(--accent2)' }}>Paid — ادائیگی</div></div>
             <div className="form-group"><label>Mode — ادائیگی کا طریقہ</label><select value={payForm.mode} onChange={e => setPayForm({ ...payForm, mode: e.target.value })}><option value="Cash">Cash — نقد</option><option value="Bank Transfer">Bank Transfer — بینک ٹرانسفر</option><option value="Cheque">Cheque — چیک</option><option value="Online">Online / JazzCash / EasyPaisa</option></select></div>
             <div className="form-group"><label>Reference / Cheque #</label><input value={payForm.reference} onChange={e => setPayForm({ ...payForm, reference: e.target.value })} /></div>
             <div className="form-group"><label>Notes</label><input value={payForm.notes} onChange={e => setPayForm({ ...payForm, notes: e.target.value })} /></div>
@@ -312,8 +319,8 @@ export default function SupplierKhata() {
                 </div>
               )}
             </div>
-            <div className="form-group"><label>Quantity — مقدار</label><input type="number" step="0.01" required value={purchForm.quantity} onChange={e => { const q = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(q, purchForm.rate) : calcCommission(q, purchForm.rate, customPercent); setPurchForm({ ...purchForm, quantity: q, commission: comm }); }} /></div>
-            <div className="form-group"><label>Rate (PKR) — نرخ</label><input type="number" step="0.01" required value={purchForm.rate} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(purchForm.quantity, r) : calcCommission(purchForm.quantity, r, customPercent); setPurchForm({ ...purchForm, rate: r, commission: comm }); }} /></div>
+            <div className="form-group"><label>Quantity — مقدار</label><input type="number" step="0.01" required value={purchForm.quantity} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => { const q = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(q, purchForm.rate) : calcCommission(q, purchForm.rate, customPercent); setPurchForm({ ...purchForm, quantity: q, commission: comm }); }} /></div>
+            <div className="form-group"><label>Rate (PKR) — نرخ</label><input type="number" step="0.01" required value={purchForm.rate} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(purchForm.quantity, r) : calcCommission(purchForm.quantity, r, customPercent); setPurchForm({ ...purchForm, rate: r, commission: comm }); }} /></div>
 
             {/* Commission with default/custom toggle */}
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -348,8 +355,8 @@ export default function SupplierKhata() {
               )}
             </div>
 
-            <div className="form-group"><label>Bardana — بوری</label><input type="number" step="0.01" value={purchForm.bardana} onChange={e => setPurchForm({ ...purchForm, bardana: e.target.value })} /></div>
-            <div className="form-group"><label>Labour — مزدوری</label><input type="number" step="0.01" value={purchForm.labour} onChange={e => setPurchForm({ ...purchForm, labour: e.target.value })} /></div>
+            <div className="form-group"><label>Bardana — بوری</label><input type="number" step="0.01" value={purchForm.bardana} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setPurchForm({ ...purchForm, bardana: e.target.value })} /></div>
+            <div className="form-group"><label>Labour — مزدوری</label><input type="number" step="0.01" value={purchForm.labour} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setPurchForm({ ...purchForm, labour: e.target.value })} /></div>
 
             {/* Payment to Supplier section */}
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -368,6 +375,7 @@ export default function SupplierKhata() {
                 <>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
                     <input type="number" step="0.01" value={purchForm.amount_paid}
+                      onKeyDown={blockInvalidChars} onWheel={preventScrollChange}
                       onChange={e => {
                         const val = e.target.value;
                         const paid = parseFloat(val) || 0;
@@ -379,6 +387,14 @@ export default function SupplierKhata() {
                       onClick={() => setPurchForm({ ...purchForm, amount_paid: purchNet, payment_status: 'Paid' })}
                       style={{ whiteSpace: 'nowrap', fontSize: '0.75rem' }}>Full Amount</button>
                   </div>
+                  {/* Real-time payment summary */}
+                  {(() => { const paid = parseFloat(purchForm.amount_paid) || 0; const remaining = purchNet - paid; return (
+                    <div className="payment-summary">
+                      <div className="payment-summary-item"><div className="payment-summary-label">Net Amount — خالص</div><div className="payment-summary-value" style={{ color: 'var(--text-primary)' }}>{formatPKR(purchNet)}</div></div>
+                      <div className="payment-summary-item"><div className="payment-summary-label">Paying — ادائیگی</div><div className="payment-summary-value" style={{ color: 'var(--green)' }}>{formatPKR(paid)}</div></div>
+                      <div className="payment-summary-item"><div className="payment-summary-label">Remaining — بقایا</div><div className="payment-summary-value" style={{ color: remaining > 0 ? 'var(--red)' : 'var(--green)' }}>{formatPKR(remaining > 0 ? remaining : 0)}</div></div>
+                    </div>
+                  ); })()}
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label style={{ fontSize: '0.78rem' }}>Payment Method — ادائیگی کا طریقہ</label>
                     <select value={purchForm.payment_mode} onChange={e => setPurchForm({ ...purchForm, payment_mode: e.target.value })}>

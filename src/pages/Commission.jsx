@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { formatPKR, formatNumber, formatDate, todayISO } from '../utils/formatters';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
+import { useToast } from '../components/Toast';
+import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
 
 
 export default function Commission() {
@@ -13,6 +15,7 @@ export default function Commission() {
   });
   const [dateTo, setDateTo] = useState(todayISO());
   const [tab, setTab] = useState('settings');
+  const toast = useToast();
 
   useEffect(() => { window.api.getProducts().then(setProducts); }, []);
 
@@ -30,7 +33,7 @@ export default function Commission() {
   const purchaseCommission = report.filter(r => r.type === 'Purchase').reduce((s, r) => s + (r.commission || 0), 0);
   const totalCommission = saleCommission + purchaseCommission;
 
-  const handleExport = (format) => {
+  const handleExport = async (format) => {
     if (report.length === 0) return;
 
     const columns = ['#', 'Date', 'Type', 'Party', 'Product', 'Qty', 'Total', 'Commission'];
@@ -48,9 +51,11 @@ export default function Commission() {
 
     const exportData = { title: 'Commission Report — آڑت رپورٹ', titleUrdu: 'آڑت رپورٹ', columns, rows, summary, dateRange };
 
-    if (format === 'pdf') exportToPDF({ ...exportData, fileName: `${fileBase}.pdf` });
-    else if (format === 'xlsx') exportToXLSX({ ...exportData, fileName: `${fileBase}.xlsx` });
-    else if (format === 'csv') exportToCSV({ ...exportData, fileName: `${fileBase}.csv` });
+    let saved = false;
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `${fileBase}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `${fileBase}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `${fileBase}.csv` });
+    if (saved) toast.success('File exported successfully!');
   };
 
   return (
@@ -77,6 +82,7 @@ export default function Commission() {
                   <td>
                     <input type="number" step="0.01" defaultValue={p.commission_rate}
                       onBlur={e => updateRate(p.id, e.target.value)}
+                      onKeyDown={blockInvalidChars} onWheel={preventScrollChange}
                       style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', color: 'var(--text-primary)', width: 100, outline: 'none' }}
                     />
                   </td>

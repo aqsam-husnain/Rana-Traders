@@ -30,6 +30,21 @@ function uniqueId() {
 }
 
 /**
+ * Safely convert an ArrayBuffer to a base64 string
+ * (avoids "Maximum call stack size exceeded" with large buffers)
+ */
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+  return btoa(binary);
+}
+
+/**
  * Get cell text from jspdf-autotable cell data
  * Works for both head and body sections
  */
@@ -204,9 +219,16 @@ export async function exportToPDF({ title, titleUrdu, columns, rows, summary, da
     });
   }
 
-  // Add unique ID to filename to prevent overwrite prompts
+  // Generate PDF as arraybuffer and show save dialog
+  const pdfOutput = doc.output('arraybuffer');
+  const base64 = arrayBufferToBase64(pdfOutput);
   const baseName = fileName ? fileName.replace(/\.pdf$/i, '') : 'report';
-  doc.save(`${baseName}_${uniqueId()}.pdf`);
+  const result = await window.api.saveFileDialog(
+    `${baseName}.pdf`,
+    [{ name: 'PDF Files', extensions: ['pdf'] }],
+    base64
+  );
+  return result?.success || false;
 }
 
 /**
@@ -231,7 +253,7 @@ function generateColumnStyles(columns, rows) {
 /**
  * Export report data to XLSX (Excel) with professional formatting
  */
-export function exportToXLSX({ title, columns, rows, summary, dateRange, fileName }) {
+export async function exportToXLSX({ title, columns, rows, summary, dateRange, fileName }) {
   const wb = XLSX.utils.book_new();
   const wsData = [];
 
@@ -276,20 +298,34 @@ export function exportToXLSX({ title, columns, rows, summary, dateRange, fileNam
   }
 
   XLSX.utils.book_append_sheet(wb, ws, 'Report');
-  // Add unique ID to filename
+  // Generate XLSX as arraybuffer and show save dialog
+  const xlsxOutput = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  const base64 = arrayBufferToBase64(xlsxOutput);
   const baseName = fileName ? fileName.replace(/\.xlsx$/i, '') : 'report';
-  XLSX.writeFile(wb, `${baseName}_${uniqueId()}.xlsx`);
+  const result = await window.api.saveFileDialog(
+    `${baseName}.xlsx`,
+    [{ name: 'Excel Files', extensions: ['xlsx'] }],
+    base64
+  );
+  return result?.success || false;
 }
 
 /**
  * Export report data to CSV
  */
-export function exportToCSV({ columns, rows, fileName }) {
+export async function exportToCSV({ columns, rows, fileName }) {
   const wb = XLSX.utils.book_new();
   const wsData = [columns, ...rows];
   const ws = XLSX.utils.aoa_to_sheet(wsData);
   XLSX.utils.book_append_sheet(wb, ws, 'Report');
-  // Add unique ID to filename
+  // Generate CSV as arraybuffer and show save dialog
+  const csvOutput = XLSX.write(wb, { type: 'array', bookType: 'csv' });
+  const base64 = arrayBufferToBase64(csvOutput);
   const baseName = fileName ? fileName.replace(/\.csv$/i, '') : 'report';
-  XLSX.writeFile(wb, `${baseName}_${uniqueId()}.csv`, { bookType: 'csv' });
+  const result = await window.api.saveFileDialog(
+    `${baseName}.csv`,
+    [{ name: 'CSV Files', extensions: ['csv'] }],
+    base64
+  );
+  return result?.success || false;
 }

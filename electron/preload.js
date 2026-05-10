@@ -56,4 +56,6 @@ contextBridge.exposeInMainWorld('api', {
   // Settings
   getSetting: (key) => ipcRenderer.invoke('get-setting', key),
   setSetting: (key, val) => ipcRenderer.invoke('set-setting', key, val),
+  // File export — show save dialog and write file
+  saveFileDialog: (defaultName, filters, dataBase64) => ipcRenderer.invoke('save-file-dialog', defaultName, filters, dataBase64),
 });

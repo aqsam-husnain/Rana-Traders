@@ -2,20 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { formatNumber, formatPKR, todayISO } from '../utils/formatters';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
+import { useToast } from '../components/Toast';
 
 export default function StockOverview() {
   const [stock, setStock] = useState([]);
+  const toast = useToast();
   useEffect(() => { window.api.getStockOverview().then(setStock); }, []);
 
-  const handleExport = (format) => {
+  const handleExport = async (format) => {
     if (stock.length === 0) return;
     const columns = ['#', 'Product / جنس', 'Unit', 'Opening Stock', 'Total Purchased', 'Total Sold', 'Available Stock'];
     const rows = stock.map((s, i) => [i + 1, s.name + (s.name_urdu ? '\n' + s.name_urdu : ''), s.unit, formatNumber(s.opening_stock || 0), formatNumber(s.total_purchased), formatNumber(s.total_sold), formatNumber(s.available_stock)]);
     const summary = [{ label: 'Total Products / کل اجناس', value: String(stock.length) }, { label: 'Total Available Stock / دستیاب اسٹاک', value: formatNumber(stock.reduce((s, r) => s + (r.available_stock || 0), 0)) }];
     const exportData = { title: 'Stock Overview — اسٹاک رپورٹ', columns, rows, summary, dateRange: '' };
-    if (format === 'pdf') exportToPDF({ ...exportData, fileName: `Stock_Overview_${todayISO()}.pdf` });
-    else if (format === 'xlsx') exportToXLSX({ ...exportData, fileName: `Stock_Overview_${todayISO()}.xlsx` });
-    else if (format === 'csv') exportToCSV({ ...exportData, fileName: `Stock_Overview_${todayISO()}.csv` });
+    let saved = false;
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Stock_Overview_${todayISO()}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Stock_Overview_${todayISO()}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Stock_Overview_${todayISO()}.csv` });
+    if (saved) toast.success('File exported successfully!');
   };
 
   return (

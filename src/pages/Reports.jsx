@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { formatPKR, formatNumber, formatDate, todayISO } from '../utils/formatters';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
+import { useToast } from '../components/Toast';
 
 const reportTypes = [
   { id: 'daily-sales', name: 'Daily Sale Report', urdu: 'یومیہ فروخت رپورٹ', needsDate: true },
@@ -107,6 +108,7 @@ export default function Reports() {
   });
   const [dateTo, setDateTo] = useState(todayISO());
   const [data, setData] = useState(null);
+  const toast = useToast();
 
   const generate = async () => {
     if (!selectedReport) return;
@@ -117,7 +119,7 @@ export default function Reports() {
   const currentType = reportTypes.find(r => r.id === selectedReport);
   const config = reportColumns[selectedReport];
 
-  const handleExport = (format) => {
+  const handleExport = async (format) => {
     if (!data || !config || !currentType) return;
 
     const isArray = Array.isArray(data);
@@ -135,10 +137,10 @@ export default function Reports() {
       dateRange,
     };
 
+    let saved = false;
     if (format === 'pdf') {
-      // For profit-loss, build special summary-only PDF
       if (selectedReport === 'profit-loss' && !isArray) {
-        exportToPDF({
+        saved = await exportToPDF({
           ...exportData,
           columns: ['Metric', 'Amount (PKR)'],
           rows: [
@@ -155,11 +157,11 @@ export default function Reports() {
           fileName: `${fileBase}.pdf`,
         });
       } else {
-        exportToPDF({ ...exportData, fileName: `${fileBase}.pdf` });
+        saved = await exportToPDF({ ...exportData, fileName: `${fileBase}.pdf` });
       }
     } else if (format === 'xlsx') {
       if (selectedReport === 'profit-loss' && !isArray) {
-        exportToXLSX({
+        saved = await exportToXLSX({
           ...exportData,
           columns: ['Metric', 'Amount (PKR)'],
           rows: [
@@ -171,11 +173,11 @@ export default function Reports() {
           fileName: `${fileBase}.xlsx`,
         });
       } else {
-        exportToXLSX({ ...exportData, fileName: `${fileBase}.xlsx` });
+        saved = await exportToXLSX({ ...exportData, fileName: `${fileBase}.xlsx` });
       }
     } else if (format === 'csv') {
       if (selectedReport === 'profit-loss' && !isArray) {
-        exportToCSV({
+        saved = await exportToCSV({
           columns: ['Metric', 'Amount'],
           rows: [
             ['Total Sales', data.totalSales],
@@ -186,9 +188,10 @@ export default function Reports() {
           fileName: `${fileBase}.csv`,
         });
       } else {
-        exportToCSV({ ...exportData, fileName: `${fileBase}.csv` });
+        saved = await exportToCSV({ ...exportData, fileName: `${fileBase}.csv` });
       }
     }
+    if (saved) toast.success('File exported successfully!');
   };
 
   const renderProfitLoss = () => {

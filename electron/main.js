@@ -267,6 +267,24 @@ function registerIpcHandlers() {
   // Settings
   ipcMain.handle('get-setting', (_e, key) => queryOne('SELECT value FROM settings WHERE key=?', [key])?.value || null);
   ipcMain.handle('set-setting', (_e, key, val) => { runSql('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)', [key, val]); return { success: true }; });
+
+  // File export — show save dialog, write file to chosen path
+  ipcMain.handle('save-file-dialog', async (_e, defaultName, filters, dataBase64) => {
+    // Strip characters illegal in Windows filenames: \ / : * ? " < > |
+    const safeName = (defaultName || 'export').replace(/[\\/:*?"<>|]/g, '-');
+    const r = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save File',
+      defaultPath: safeName,
+      filters: filters || [{ name: 'All Files', extensions: ['*'] }]
+    });
+    if (r.canceled || !r.filePath) return { success: false };
+    try {
+      fs.writeFileSync(r.filePath, Buffer.from(dataBase64, 'base64'));
+      return { success: true, path: r.filePath };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  });
 }
 
 app.whenReady().then(async () => {

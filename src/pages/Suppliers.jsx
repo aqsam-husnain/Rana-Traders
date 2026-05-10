@@ -6,6 +6,8 @@ import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
+import { useToast } from '../components/Toast';
+import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
 
 export default function Suppliers() {
   const [suppliers, setSuppliers] = useState([]);
@@ -15,23 +17,26 @@ export default function Suppliers() {
   const emptyForm = { name: '', name_urdu: '', phone: '', address: '', cnic: '', opening_balance: '', status: 'Active' };
   const [form, setForm] = useState(emptyForm);
   const navigate = useNavigate();
+  const toast = useToast();
 
   useEffect(() => { load(); }, []);
   const load = async () => { const d = await window.api.getSuppliers(); setSuppliers(d.filter(dl => dl.type === 'Regular')); };
-  const handleSave = async (e) => { e.preventDefault(); if (editing) await window.api.updateSupplier(editing.id, { ...form, type: 'Regular' }); else await window.api.addSupplier({ ...form, type: 'Regular' }); setShowForm(false); setEditing(null); setForm(emptyForm); load(); };
+  const handleSave = async (e) => { e.preventDefault(); if (editing) await window.api.updateSupplier(editing.id, { ...form, type: 'Regular' }); else await window.api.addSupplier({ ...form, type: 'Regular' }); setShowForm(false); setEditing(null); setForm(emptyForm); load(); toast.success(editing ? 'Supplier updated! — سپلائر اپ ڈیٹ ہو گیا' : 'Supplier added! — سپلائر شامل ہو گیا'); };
   const handleEdit = (d) => { setEditing(d); setForm(d); setShowForm(true); };
-  const handleDelete = async (id) => { if (confirmAction('Delete this supplier?')) { await window.api.deleteSupplier(id); load(); } };
+  const handleDelete = async (id) => { if (confirmAction('Delete this supplier?')) { await window.api.deleteSupplier(id); load(); toast.success('Supplier deleted — سپلائر حذف ہو گیا'); } };
   const filtered = suppliers.filter(d => d.name.toLowerCase().includes(search.toLowerCase()) || (d.name_urdu || '').includes(search) || (d.phone || '').includes(search));
 
-  const handleExport = (format) => {
+  const handleExport = async (format) => {
     if (filtered.length === 0) return;
     const columns = ['#', 'Name / نام', 'Phone', 'CNIC', 'Address', 'Opening Balance', 'Status'];
     const rows = filtered.map((d, i) => [i + 1, d.name + (d.name_urdu ? '\n' + d.name_urdu : ''), d.phone || '—', d.cnic || '—', d.address || '—', formatPKR(d.opening_balance || 0), d.status]);
     const summary = [{ label: 'Total Suppliers / کل سپلائرز', value: String(filtered.length) }, { label: 'Total Opening Balance / ابتدائی بیلنس', value: formatPKR(filtered.reduce((s, d) => s + (d.opening_balance || 0), 0)) }];
     const exportData = { title: 'Suppliers List — سپلائرز کی فہرست', columns, rows, summary, dateRange: '' };
-    if (format === 'pdf') exportToPDF({ ...exportData, fileName: `Suppliers_${todayISO()}.pdf` });
-    else if (format === 'xlsx') exportToXLSX({ ...exportData, fileName: `Suppliers_${todayISO()}.xlsx` });
-    else if (format === 'csv') exportToCSV({ ...exportData, fileName: `Suppliers_${todayISO()}.csv` });
+    let saved = false;
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Suppliers_${todayISO()}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Suppliers_${todayISO()}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Suppliers_${todayISO()}.csv` });
+    if (saved) toast.success('File exported successfully!');
   };
 
   return (
@@ -60,7 +65,7 @@ export default function Suppliers() {
             <div className="form-group"><label>Name (Urdu) — نام</label><input className="urdu" value={form.name_urdu} onChange={e => setForm({ ...form, name_urdu: e.target.value })} /></div>
             <div className="form-group"><label>Phone</label><input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></div>
             <div className="form-group"><label>CNIC</label><input value={form.cnic} onChange={e => setForm({ ...form, cnic: e.target.value })} /></div>
-            <div className="form-group"><label>Opening Balance (PKR)</label><input type="number" step="0.01" value={form.opening_balance} onChange={e => setForm({ ...form, opening_balance: e.target.value })} placeholder="0" /></div>
+            <div className="form-group"><label>Opening Balance (PKR)</label><input type="number" step="0.01" value={form.opening_balance} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setForm({ ...form, opening_balance: e.target.value })} placeholder="0" /></div>
             <div className="form-group"><label>Address</label><input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} /></div>
             <div className="form-group"><label>Status</label><select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}><option>Active</option><option>Inactive</option></select></div>
           </div>

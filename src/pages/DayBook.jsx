@@ -2,25 +2,29 @@ import React, { useState, useEffect } from 'react';
 import { formatPKR, formatDate, todayDateOnly } from '../utils/formatters';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
+import { useToast } from '../components/Toast';
 
 export default function DayBook() {
   const [date, setDate] = useState(todayDateOnly());
   const [entries, setEntries] = useState([]);
+  const toast = useToast();
 
   useEffect(() => { window.api.getDaybook(date).then(setEntries); }, [date]);
 
   const totalIn = entries.filter(e => e.type === 'Sale' || e.type === 'Payment In').reduce((s, e) => s + e.amount, 0);
   const totalOut = entries.filter(e => e.type === 'Purchase' || e.type === 'Payment Out').reduce((s, e) => s + e.amount, 0);
 
-  const handleExport = (format) => {
+  const handleExport = async (format) => {
     if (entries.length === 0) return;
     const columns = ['#', 'Type', 'Party', 'Product', 'Amount (PKR)'];
     const rows = entries.map((e, i) => [i + 1, e.type, e.party_name || '—', e.product_name || '—', formatPKR(e.amount)]);
     const summary = [{ label: 'Total Inflow', value: formatPKR(totalIn) }, { label: 'Total Outflow', value: formatPKR(totalOut) }, { label: 'Net', value: formatPKR(totalIn - totalOut) }];
     const exportData = { title: `Day Book — روزنامچہ`, columns, rows, summary, dateRange: formatDate(date) };
-    if (format === 'pdf') exportToPDF({ ...exportData, fileName: `DayBook_${date}.pdf` });
-    else if (format === 'xlsx') exportToXLSX({ ...exportData, fileName: `DayBook_${date}.xlsx` });
-    else if (format === 'csv') exportToCSV({ ...exportData, fileName: `DayBook_${date}.csv` });
+    let saved = false;
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `DayBook_${date}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `DayBook_${date}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `DayBook_${date}.csv` });
+    if (saved) toast.success('File exported successfully!');
   };
 
   return (

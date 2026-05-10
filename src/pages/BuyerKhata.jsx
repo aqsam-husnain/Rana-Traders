@@ -6,10 +6,13 @@ import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
+import { useToast } from '../components/Toast';
+import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
 
 export default function BuyerKhata() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const [buyer, setBuyer] = useState(null);
   const [ledger, setLedger] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -68,6 +71,7 @@ export default function BuyerKhata() {
     });
     setShowPaymentForm(false);
     loadAll();
+    toast.success('Payment saved successfully! — ادائیگی محفوظ ہو گئی');
   };
 
   // ─── Sale handlers ───
@@ -131,11 +135,11 @@ export default function BuyerKhata() {
   const handleSaleSave = async (e) => {
     e.preventDefault();
     const qty = parseFloat(saleForm.quantity) || 0;
-    if (!saleForm.product_id) return alert('Please select a product');
-    if (qty <= 0) return alert('Quantity must be greater than 0');
+    if (!saleForm.product_id) return toast.error('Please select a product — جنس منتخب کریں');
+    if (qty <= 0) return toast.error('Quantity must be greater than 0');
     const currentStock = await window.api.getProductStock(parseInt(saleForm.product_id));
-    if (currentStock <= 0) return alert('Cannot save sale — this product is out of stock!');
-    if (qty > currentStock) return alert(`Cannot save — not enough stock!\nAvailable: ${formatNumber(currentStock)}\nRequested: ${formatNumber(qty)}`);
+    if (currentStock <= 0) return toast.error('Cannot save sale — this product is out of stock!');
+    if (qty > currentStock) return toast.error(`Cannot save — not enough stock! Available: ${formatNumber(currentStock)}, Requested: ${formatNumber(qty)}`);
 
     const amountPaid = parseFloat(saleForm.amount_paid) || 0;
     const paymentStatus = updatePaymentStatus(amountPaid);
@@ -151,12 +155,14 @@ export default function BuyerKhata() {
     });
     setShowSaleForm(false);
     loadAll();
+    toast.success('Sale saved successfully! — فروخت محفوظ ہو گئی');
   };
 
   const handleDeletePayment = async (paymentId) => {
     if (confirmAction('Delete this payment entry?')) {
       await window.api.deletePayment(paymentId);
       loadAll();
+      toast.success('Payment deleted — ادائیگی حذف ہو گئی');
     }
   };
 
@@ -164,13 +170,14 @@ export default function BuyerKhata() {
     if (confirmAction('Delete this sale entry?')) {
       await window.api.deleteSale(saleId);
       loadAll();
+      toast.success('Sale deleted — فروخت حذف ہو گئی');
     }
   };
 
   // ─── Export ───
   const getExportColumns = () => ['#', 'Date', 'Type', 'Product', 'Qty', 'Rate', 'Debit', 'Credit', 'Balance'];
 
-  const handleExport = (format, hiddenColumns = []) => {
+  const handleExport = async (format, hiddenColumns = []) => {
     if (!entries.length) return;
     let bal = openingBalance;
     const columns = getExportColumns();
@@ -193,9 +200,11 @@ export default function BuyerKhata() {
     const summary = [{ label: 'Buyer', value: buyer?.name || '' }, { label: 'Total Debit', value: formatPKR(totalDebit) }, { label: 'Total Credit', value: formatPKR(totalCredit) }, { label: 'Final Balance', value: formatPKR(bal) }];
     const exportData = { title: `Buyer Khata — ${buyer?.name} — کھاتا`, columns, rows, summary, dateRange: '' };
     const safeName = (buyer?.name || 'Buyer').replace(/\s+/g, '_');
-    if (format === 'pdf') exportToPDF({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.pdf` });
-    else if (format === 'xlsx') exportToXLSX({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.xlsx` });
-    else if (format === 'csv') exportToCSV({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.csv` });
+    let saved = false;
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.csv` });
+    if (saved) toast.success('File exported successfully!');
   };
 
   if (loading) return <div className="empty-state"><p>Loading...</p></div>;
@@ -315,8 +324,8 @@ export default function BuyerKhata() {
         <form onSubmit={handlePaymentSave}>
           <div className="form-grid">
             <div className="form-group"><label>Date & Time</label><input type="datetime-local" required value={payForm.date} onChange={e => setPayForm({ ...payForm, date: e.target.value })} /></div>
-            <div className="form-group"><label>Amount (PKR)</label><input type="number" step="0.01" required value={payForm.amount} onChange={e => setPayForm({ ...payForm, amount: e.target.value })} /></div>
-            <div className="form-group"><label>Type</label><select value={payForm.type} onChange={e => setPayForm({ ...payForm, type: e.target.value })}><option>Received</option><option>Paid</option></select></div>
+            <div className="form-group"><label>Amount (PKR)</label><input type="number" step="0.01" required value={payForm.amount} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setPayForm({ ...payForm, amount: e.target.value })} /></div>
+            <div className="form-group"><label>Type</label><div style={{ padding: '10px 14px', background: 'var(--green-glow)', border: '1px solid var(--green)', borderRadius: 10, fontWeight: 600, color: 'var(--green)' }}>Received — وصولی</div></div>
             <div className="form-group"><label>Mode — ادائیگی کا طریقہ</label><select value={payForm.mode} onChange={e => setPayForm({ ...payForm, mode: e.target.value })}><option value="Cash">Cash — نقد</option><option value="Bank Transfer">Bank Transfer — بینک ٹرانسفر</option><option value="Cheque">Cheque — چیک</option><option value="Online">Online / JazzCash / EasyPaisa</option></select></div>
             <div className="form-group"><label>Reference / Cheque #</label><input value={payForm.reference} onChange={e => setPayForm({ ...payForm, reference: e.target.value })} /></div>
             <div className="form-group"><label>Notes</label><input value={payForm.notes} onChange={e => setPayForm({ ...payForm, notes: e.target.value })} /></div>
@@ -361,11 +370,12 @@ export default function BuyerKhata() {
             <div className="form-group">
               <label>Quantity — مقدار</label>
               <input type="number" step="0.01" required value={saleForm.quantity}
+                onKeyDown={blockInvalidChars} onWheel={preventScrollChange}
                 onChange={e => { const q = e.target.value; validateQuantity(q); const comm = commissionMode === 'default' ? recalcCommission(q, saleForm.rate) : calcCommission(q, saleForm.rate, customPercent); setSaleForm({ ...saleForm, quantity: q, commission: comm }); }}
                 style={stockError ? { borderColor: 'var(--red)', boxShadow: '0 0 0 3px var(--red-glow)' } : {}} />
               {stockError && <div style={{ fontSize: '0.75rem', color: 'var(--red)', fontWeight: 600, marginTop: 4 }}>{stockError}</div>}
             </div>
-            <div className="form-group"><label>Rate (PKR) — نرخ</label><input type="number" step="0.01" required value={saleForm.rate} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(saleForm.quantity, r) : calcCommission(saleForm.quantity, r, customPercent); setSaleForm({ ...saleForm, rate: r, commission: comm }); }} /></div>
+            <div className="form-group"><label>Rate (PKR) — نرخ</label><input type="number" step="0.01" required value={saleForm.rate} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(saleForm.quantity, r) : calcCommission(saleForm.quantity, r, customPercent); setSaleForm({ ...saleForm, rate: r, commission: comm }); }} /></div>
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
               <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>Commission — آڑت</span>
@@ -395,8 +405,8 @@ export default function BuyerKhata() {
                 </>
               )}
             </div>
-            <div className="form-group"><label>Bardana — بوری</label><input type="number" step="0.01" value={saleForm.bardana} onChange={e => setSaleForm({ ...saleForm, bardana: e.target.value })} /></div>
-            <div className="form-group"><label>Labour — مزدوری</label><input type="number" step="0.01" value={saleForm.labour} onChange={e => setSaleForm({ ...saleForm, labour: e.target.value })} /></div>
+            <div className="form-group"><label>Bardana — بوری</label><input type="number" step="0.01" value={saleForm.bardana} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setSaleForm({ ...saleForm, bardana: e.target.value })} /></div>
+            <div className="form-group"><label>Labour — مزدوری</label><input type="number" step="0.01" value={saleForm.labour} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setSaleForm({ ...saleForm, labour: e.target.value })} /></div>
 
             {/* Payment from Buyer section */}
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -415,6 +425,7 @@ export default function BuyerKhata() {
                 <>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
                     <input type="number" step="0.01" value={saleForm.amount_paid}
+                      onKeyDown={blockInvalidChars} onWheel={preventScrollChange}
                       onChange={e => {
                         const val = e.target.value;
                         const paid = parseFloat(val) || 0;
@@ -426,6 +437,14 @@ export default function BuyerKhata() {
                       onClick={() => setSaleForm({ ...saleForm, amount_paid: saleNet, payment_status: 'Received' })}
                       style={{ whiteSpace: 'nowrap', fontSize: '0.75rem' }}>Full Amount</button>
                   </div>
+                  {/* Real-time payment summary */}
+                  {(() => { const paid = parseFloat(saleForm.amount_paid) || 0; const remaining = saleNet - paid; return (
+                    <div className="payment-summary">
+                      <div className="payment-summary-item"><div className="payment-summary-label">Net Amount — خالص</div><div className="payment-summary-value" style={{ color: 'var(--text-primary)' }}>{formatPKR(saleNet)}</div></div>
+                      <div className="payment-summary-item"><div className="payment-summary-label">Receiving — وصولی</div><div className="payment-summary-value" style={{ color: 'var(--green)' }}>{formatPKR(paid)}</div></div>
+                      <div className="payment-summary-item"><div className="payment-summary-label">Remaining — بقایا</div><div className="payment-summary-value" style={{ color: remaining > 0 ? 'var(--red)' : 'var(--green)' }}>{formatPKR(remaining > 0 ? remaining : 0)}</div></div>
+                    </div>
+                  ); })()}
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label style={{ fontSize: '0.78rem' }}>Payment Method — ادائیگی کا طریقہ</label>
                     <select value={saleForm.payment_mode} onChange={e => setSaleForm({ ...saleForm, payment_mode: e.target.value })}>
