@@ -144,7 +144,11 @@ function registerIpcHandlers() {
     const s = queryAll("SELECT 'Sale' as type,s.date,s.net_amount as amount,b.name as party_name,b.name_urdu as party_name_urdu,p.name as product_name,p.name_urdu as product_name_urdu FROM sales s LEFT JOIN buyers b ON s.buyer_id=b.id LEFT JOIN products p ON s.product_id=p.id WHERE substr(s.date,1,10)=?", [date]);
     const pu = queryAll("SELECT 'Purchase' as type,pu.date,pu.net_amount as amount,sp.name as party_name,sp.name_urdu as party_name_urdu,p.name as product_name,p.name_urdu as product_name_urdu FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id LEFT JOIN products p ON pu.product_id=p.id WHERE substr(pu.date,1,10)=?", [date]);
     const pa = queryAll("SELECT CASE WHEN type='Received' THEN 'Payment In' ELSE 'Payment Out' END as type,date,amount,CASE WHEN party_type='Buyer' THEN (SELECT name FROM buyers WHERE id=party_id) ELSE (SELECT name FROM suppliers WHERE id=party_id) END as party_name,CASE WHEN party_type='Buyer' THEN (SELECT name_urdu FROM buyers WHERE id=party_id) ELSE (SELECT name_urdu FROM suppliers WHERE id=party_id) END as party_name_urdu,'' as product_name,'' as product_name_urdu FROM payments WHERE substr(date,1,10)=?", [date]);
-    return [...s, ...pu, ...pa];
+    // Inline payments: amount_paid at time of sale (received from buyer)
+    const salePayments = queryAll("SELECT 'Payment In' as type,s.date,s.amount_paid as amount,b.name as party_name,b.name_urdu as party_name_urdu,p.name as product_name,p.name_urdu as product_name_urdu FROM sales s LEFT JOIN buyers b ON s.buyer_id=b.id LEFT JOIN products p ON s.product_id=p.id WHERE substr(s.date,1,10)=? AND s.amount_paid>0", [date]);
+    // Inline payments: amount_paid at time of purchase (paid to supplier)
+    const purchasePayments = queryAll("SELECT 'Payment Out' as type,pu.date,pu.amount_paid as amount,sp.name as party_name,sp.name_urdu as party_name_urdu,p.name as product_name,p.name_urdu as product_name_urdu FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id LEFT JOIN products p ON pu.product_id=p.id WHERE substr(pu.date,1,10)=? AND pu.amount_paid>0", [date]);
+    return [...s, ...pu, ...pa, ...salePayments, ...purchasePayments];
   });
 
   // Reports

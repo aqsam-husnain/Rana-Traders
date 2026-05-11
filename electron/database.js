@@ -8,10 +8,10 @@ let dbPath = '';
 
 async function initDatabase() {
   const SQL = await initSqlJs();
-  // Store database in the app's own folder (not AppData)
-  // Dev: project root | Production: next to the .exe
+  // Dev: project root | Production: userData (AppData) to avoid permission issues
+  // Previously stored next to .exe which fails in Program Files without admin
   const baseDir = app.isPackaged
-    ? path.dirname(app.getPath('exe'))
+    ? app.getPath('userData')
     : path.join(__dirname, '..');
   dbPath = path.join(baseDir, 'rana-traders.db');
 
@@ -19,7 +19,18 @@ async function initDatabase() {
     const buffer = fs.readFileSync(dbPath);
     db = new SQL.Database(buffer);
   } else {
-    db = new SQL.Database();
+    // Auto-migrate: if packaged and old db exists next to .exe, copy it to userData
+    if (app.isPackaged) {
+      const oldPath = path.join(path.dirname(app.getPath('exe')), 'rana-traders.db');
+      if (fs.existsSync(oldPath)) {
+        const buffer = fs.readFileSync(oldPath);
+        db = new SQL.Database(buffer);
+      } else {
+        db = new SQL.Database();
+      }
+    } else {
+      db = new SQL.Database();
+    }
   }
 
   createTables();
