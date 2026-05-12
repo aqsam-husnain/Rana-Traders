@@ -23,7 +23,7 @@ export default function Purchases() {
   const [customPercent, setCustomPercent] = useState('');
   const [showUnitInput, setShowUnitInput] = useState(false);
   const [newUnit, setNewUnit] = useState('');
-  const [form, setForm] = useState({ supplier_id: '', product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', amount_paid: 0, payment_status: 'To Pay', unit: 'KG' });
+  const [form, setForm] = useState({ supplier_id: '', product_id: '', date: todayISO(), total_weight: '', kaat: 0, rate: '', commission: 0, bardana: 0, labour: 0, munshiyana: 0, kiraya: 0, others: 0, payment_mode: 'On Account', notes: '', amount_paid: 0, payment_status: 'To Pay', unit: 'KG' });
 
   useEffect(() => { load(); }, []);
   const load = async () => {
@@ -34,8 +34,9 @@ export default function Purchases() {
     setUnits(await window.api.getUnits());
   };
 
-  const total = (parseFloat(form.quantity) || 0) * (parseFloat(form.rate) || 0);
-  const net = total + (parseFloat(form.commission) || 0) + (parseFloat(form.bardana) || 0) + (parseFloat(form.labour) || 0);
+  const safiWeight = Math.max(0, (parseFloat(form.total_weight) || 0) - (parseFloat(form.kaat) || 0));
+  const total = safiWeight * (parseFloat(form.rate) || 0);
+  const net = total + (parseFloat(form.commission) || 0) + (parseFloat(form.bardana) || 0) + (parseFloat(form.labour) || 0) + (parseFloat(form.munshiyana) || 0) + (parseFloat(form.kiraya) || 0) + (parseFloat(form.others) || 0);
   const getDefaultPercent = (pid) => { const p = products.find(x => x.id === parseInt(pid || form.product_id)); return p ? p.commission_rate : 0; };
   const calcCommission = (qty, rate, percent) => ((parseFloat(qty) || 0) * (parseFloat(rate) || 0) * (parseFloat(percent) || 0) / 100).toFixed(2);
   const recalcCommission = (qty, rate, pid) => calcCommission(qty, rate, getDefaultPercent(pid));
@@ -43,11 +44,12 @@ export default function Purchases() {
 
   const handleProductChange = (pid) => {
     const p = products.find(x => x.id === parseInt(pid));
+    const safi = Math.max(0, (parseFloat(form.total_weight) || 0) - (parseFloat(form.kaat) || 0));
     let newCommission;
     if (commissionMode === 'default') {
-      newCommission = recalcCommission(form.quantity, form.rate, pid);
+      newCommission = recalcCommission(safi, form.rate, pid);
     } else {
-      newCommission = calcCommission(form.quantity, form.rate, customPercent);
+      newCommission = calcCommission(safi, form.rate, customPercent);
     }
     setForm({ ...form, product_id: pid, unit: p ? p.unit : '', commission: newCommission });
     setShowUnitInput(false);
@@ -58,7 +60,7 @@ export default function Purchases() {
     setEditingId(null);
     setPartyType('Regular'); setWalkInName(''); setCommissionMode('default'); setCustomPercent('');
     setShowUnitInput(false); setNewUnit('');
-    setForm({ supplier_id: '', product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', amount_paid: 0, payment_status: 'To Pay', unit: 'KG' });
+    setForm({ supplier_id: '', product_id: '', date: todayISO(), total_weight: '', kaat: 0, rate: '', commission: 0, bardana: 0, labour: 0, munshiyana: 0, kiraya: 0, others: 0, payment_mode: 'On Account', notes: '', amount_paid: 0, payment_status: 'To Pay', unit: 'KG' });
     setShowForm(true);
   };
 
@@ -69,8 +71,10 @@ export default function Purchases() {
     setShowUnitInput(false); setNewUnit('');
     setForm({
       supplier_id: String(p.supplier_id), product_id: String(p.product_id), date: p.date,
-      quantity: p.quantity, rate: p.rate, commission: p.commission || 0,
+      total_weight: p.total_weight || p.quantity, kaat: p.kaat || 0,
+      rate: p.rate, commission: p.commission || 0,
       bardana: p.bardana || 0, labour: p.labour || 0,
+      munshiyana: p.munshiyana || 0, kiraya: p.kiraya || 0, others: p.others || 0,
       payment_mode: p.payment_mode || 'On Account', notes: p.notes || '',
       amount_paid: p.amount_paid || 0, payment_status: p.payment_status || 'To Pay',
       unit: p.display_unit || p.product_unit || 'KG'
@@ -101,9 +105,9 @@ export default function Purchases() {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    const qty = parseFloat(form.quantity) || 0;
+    const qty = safiWeight;
     if (!form.product_id) return toast.error('Please select a product — جنس منتخب کریں');
-    if (qty <= 0) return toast.error('Quantity must be greater than 0 — مقدار صفر سے زیادہ ہونی چاہیے');
+    if (qty <= 0) return toast.error('Safi Weight must be greater than 0 — صافی وزن صفر سے زیادہ ہونا چاہیے');
     let supplierId;
     if (partyType === 'Walk-in') { const result = await window.api.addSupplier({ name: walkInName || 'Walk-in Supplier', name_urdu: '', type: 'Walk-in', phone: '', address: '', cnic: '', opening_balance: 0, status: 'Active' }); supplierId = result.lastInsertRowid; }
     else { supplierId = parseInt(form.supplier_id); if (!supplierId) return toast.error('Please select a supplier — سپلائر منتخب کریں'); }
@@ -117,7 +121,10 @@ export default function Purchases() {
       labour: parseFloat(form.labour) || 0, net_amount: net,
       payment_mode: form.payment_mode, notes: form.notes,
       amount_paid: amountPaid, payment_status: paymentStatus,
-      unit: form.unit || null, commission_type: commissionMode
+      unit: form.unit || null, commission_type: commissionMode,
+      total_weight: parseFloat(form.total_weight) || 0, kaat: parseFloat(form.kaat) || 0,
+      munshiyana: parseFloat(form.munshiyana) || 0, kiraya: parseFloat(form.kiraya) || 0,
+      others: parseFloat(form.others) || 0
     };
 
     if (editingId) {
@@ -199,17 +206,43 @@ export default function Purchases() {
               )}
             </div>
 
-            <div className="form-group"><label>Quantity — مقدار</label><input type="number" step="0.01" required value={form.quantity} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => { const q = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(q, form.rate) : calcCommission(q, form.rate, customPercent); setForm({ ...form, quantity: q, commission: comm }); }} /></div>
-            <div className="form-group"><label>Rate (PKR) — نرخ</label><input type="number" step="0.01" required value={form.rate} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(form.quantity, r) : calcCommission(form.quantity, r, customPercent); setForm({ ...form, rate: r, commission: comm }); }} /></div>
+            <div className="form-group">
+              <label>Total Weight — <span className="urdu">کل وزن</span></label>
+              <input type="number" step="0.01" required value={form.total_weight} onKeyDown={blockInvalidChars} onWheel={preventScrollChange}
+                onChange={e => { const tw = e.target.value; const safi = Math.max(0, (parseFloat(tw) || 0) - (parseFloat(form.kaat) || 0)); const comm = commissionMode === 'default' ? recalcCommission(safi, form.rate) : calcCommission(safi, form.rate, customPercent); setForm({ ...form, total_weight: tw, commission: comm }); }} />
+            </div>
+            <div className="form-group">
+              <label>Kaat — <span className="urdu">کاٹ</span></label>
+              <input type="number" step="0.01" value={form.kaat} onKeyDown={blockInvalidChars} onWheel={preventScrollChange}
+                onChange={e => { const k = e.target.value; const safi = Math.max(0, (parseFloat(form.total_weight) || 0) - (parseFloat(k) || 0)); const comm = commissionMode === 'default' ? recalcCommission(safi, form.rate) : calcCommission(safi, form.rate, customPercent); setForm({ ...form, kaat: k, commission: comm }); }} />
+            </div>
+            <div className="form-group">
+              <label>Safi Weight — <span className="urdu">صافی وزن</span></label>
+              <input type="number" value={safiWeight.toFixed(2)} readOnly style={{ opacity: 0.8, cursor: 'not-allowed', fontWeight: 700, color: 'var(--green)' }} />
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>Auto: Total Weight − Kaat</span>
+            </div>
+            <div className="form-group"><label>Rate — <span className="urdu">ریٹ</span></label><input type="number" step="0.01" required value={form.rate} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(safiWeight, r) : calcCommission(safiWeight, r, customPercent); setForm({ ...form, rate: r, commission: comm }); }} /></div>
+
+            <div className="form-group">
+              <label>Total Amount — <span className="urdu">کل رقم</span></label>
+              <input type="number" value={total.toFixed(2)} readOnly style={{ opacity: 0.8, cursor: 'not-allowed', fontWeight: 700 }} />
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>Safi Weight × Rate</span>
+            </div>
+
+            <div className="form-group"><label>Bardana — <span className="urdu">باردانہ</span></label><input type="number" step="0.01" value={form.bardana} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setForm({ ...form, bardana: e.target.value })} /></div>
+            <div className="form-group"><label>Labour — <span className="urdu">مزدوری</span></label><input type="number" step="0.01" value={form.labour} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setForm({ ...form, labour: e.target.value })} /></div>
+            <div className="form-group"><label>Munshiyana — <span className="urdu">مُنشِیانَہ</span></label><input type="number" step="0.01" value={form.munshiyana} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setForm({ ...form, munshiyana: e.target.value })} /></div>
+            <div className="form-group"><label>Kiraya — <span className="urdu">کرایہ</span></label><input type="number" step="0.01" value={form.kiraya} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setForm({ ...form, kiraya: e.target.value })} /></div>
+            <div className="form-group"><label>Others — <span className="urdu">دیگر</span></label><input type="number" step="0.01" value={form.others} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setForm({ ...form, others: e.target.value })} /></div>
 
             {/* Commission with default/custom toggle */}
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
               <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>Commission — آڑت</span>
+                <span>Commission — <span className="urdu">کمیشن</span></span>
                 <span style={{ display: 'flex', gap: 4 }}>
-                  <button type="button" onClick={() => { setCommissionMode('default'); setCustomPercent(''); setForm({ ...form, commission: recalcCommission(form.quantity, form.rate) }); }}
+                  <button type="button" onClick={() => { setCommissionMode('default'); setCustomPercent(''); setForm({ ...form, commission: recalcCommission(safiWeight, form.rate) }); }}
                     style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border)', background: commissionMode === 'default' ? 'var(--accent)' : 'transparent', color: commissionMode === 'default' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 600 }}>Default</button>
-                  <button type="button" onClick={() => { setCommissionMode('custom'); const dp = getDefaultPercent(form.product_id); setCustomPercent(dp); setForm({ ...form, commission: calcCommission(form.quantity, form.rate, dp) }); }}
+                  <button type="button" onClick={() => { setCommissionMode('custom'); const dp = getDefaultPercent(form.product_id); setCustomPercent(dp); setForm({ ...form, commission: calcCommission(safiWeight, form.rate, dp) }); }}
                     style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border)', background: commissionMode === 'custom' ? 'var(--accent2)' : 'transparent', color: commissionMode === 'custom' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 600 }}>Custom</button>
                 </span>
               </label>
@@ -218,7 +251,7 @@ export default function Purchases() {
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <div style={{ flex: '0 0 100px', position: 'relative' }}>
                       <input type="number" step="0.01" min="0" value={customPercent}
-                        onChange={e => { const pct = e.target.value; setCustomPercent(pct); setForm({ ...form, commission: calcCommission(form.quantity, form.rate, pct) }); }}
+                        onChange={e => { const pct = e.target.value; setCustomPercent(pct); setForm({ ...form, commission: calcCommission(safiWeight, form.rate, pct) }); }}
                         style={{ borderColor: 'var(--accent2)', paddingRight: 28 }} placeholder="%" />
                       <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.85rem', pointerEvents: 'none' }}>%</span>
                     </div>
@@ -234,9 +267,6 @@ export default function Purchases() {
                 </>
               )}
             </div>
-
-            <div className="form-group"><label>Bardana — بوری</label><input type="number" step="0.01" value={form.bardana} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setForm({ ...form, bardana: e.target.value })} /></div>
-            <div className="form-group"><label>Labour — مزدوری</label><input type="number" step="0.01" value={form.labour} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setForm({ ...form, labour: e.target.value })} /></div>
 
             {/* Payment to Dealer section */}
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>

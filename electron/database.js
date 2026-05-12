@@ -110,6 +110,18 @@ function runMigrations() {
   try { db.run('ALTER TABLE sales ADD COLUMN amount_paid REAL DEFAULT 0'); } catch (e) { /* already exists */ }
   try { db.run("ALTER TABLE sales ADD COLUMN payment_status TEXT DEFAULT 'To Receive'"); } catch (e) { /* already exists */ }
 
+  // New transaction detail fields (total_weight, kaat, munshiyana, kiraya, others)
+  try { db.run('ALTER TABLE sales ADD COLUMN total_weight REAL DEFAULT 0'); } catch (e) { /* already exists */ }
+  try { db.run('ALTER TABLE sales ADD COLUMN kaat REAL DEFAULT 0'); } catch (e) { /* already exists */ }
+  try { db.run('ALTER TABLE sales ADD COLUMN munshiyana REAL DEFAULT 0'); } catch (e) { /* already exists */ }
+  try { db.run('ALTER TABLE sales ADD COLUMN kiraya REAL DEFAULT 0'); } catch (e) { /* already exists */ }
+  try { db.run('ALTER TABLE sales ADD COLUMN others REAL DEFAULT 0'); } catch (e) { /* already exists */ }
+  try { db.run('ALTER TABLE purchases ADD COLUMN total_weight REAL DEFAULT 0'); } catch (e) { /* already exists */ }
+  try { db.run('ALTER TABLE purchases ADD COLUMN kaat REAL DEFAULT 0'); } catch (e) { /* already exists */ }
+  try { db.run('ALTER TABLE purchases ADD COLUMN munshiyana REAL DEFAULT 0'); } catch (e) { /* already exists */ }
+  try { db.run('ALTER TABLE purchases ADD COLUMN kiraya REAL DEFAULT 0'); } catch (e) { /* already exists */ }
+  try { db.run('ALTER TABLE purchases ADD COLUMN others REAL DEFAULT 0'); } catch (e) { /* already exists */ }
+
   // Seed default unit KG if not present
   db.run("INSERT OR IGNORE INTO units (name) VALUES ('KG')");
 }

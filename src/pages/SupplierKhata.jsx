@@ -31,8 +31,9 @@ export default function SupplierKhata() {
   const [showUnitInput, setShowUnitInput] = useState(false);
   const [newUnit, setNewUnit] = useState('');
   const [purchForm, setPurchForm] = useState({
-    product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0,
-    bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '',
+    product_id: '', date: todayISO(), total_weight: '', kaat: 0, rate: '', commission: 0,
+    bardana: 0, labour: 0, munshiyana: 0, kiraya: 0, others: 0,
+    payment_mode: 'On Account', notes: '', unit: '',
     amount_paid: 0, payment_status: 'To Pay'
   });
   const [editingPurchaseId, setEditingPurchaseId] = useState(null);
@@ -72,8 +73,9 @@ export default function SupplierKhata() {
   };
 
   // ─── Purchase handlers ───
-  const purchTotal = (parseFloat(purchForm.quantity) || 0) * (parseFloat(purchForm.rate) || 0);
-  const purchNet = purchTotal + (parseFloat(purchForm.commission) || 0) + (parseFloat(purchForm.bardana) || 0) + (parseFloat(purchForm.labour) || 0);
+  const safiWeight = Math.max(0, (parseFloat(purchForm.total_weight) || 0) - (parseFloat(purchForm.kaat) || 0));
+  const purchTotal = safiWeight * (parseFloat(purchForm.rate) || 0);
+  const purchNet = purchTotal + (parseFloat(purchForm.commission) || 0) + (parseFloat(purchForm.bardana) || 0) + (parseFloat(purchForm.labour) || 0) + (parseFloat(purchForm.munshiyana) || 0) + (parseFloat(purchForm.kiraya) || 0) + (parseFloat(purchForm.others) || 0);
 
   const getDefaultPercent = (pid) => { const p = products.find(x => x.id === parseInt(pid || purchForm.product_id)); return p ? p.commission_rate : 0; };
   const calcCommission = (qty, rate, percent) => ((parseFloat(qty) || 0) * (parseFloat(rate) || 0) * (parseFloat(percent) || 0) / 100).toFixed(2);
@@ -83,7 +85,7 @@ export default function SupplierKhata() {
     setEditingPurchaseId(null);
     setCommissionMode('default'); setCustomPercent('');
     setShowUnitInput(false); setNewUnit('');
-    setPurchForm({ product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '', amount_paid: 0, payment_status: 'To Pay' });
+    setPurchForm({ product_id: '', date: todayISO(), total_weight: '', kaat: 0, rate: '', commission: 0, bardana: 0, labour: 0, munshiyana: 0, kiraya: 0, others: 0, payment_mode: 'On Account', notes: '', unit: '', amount_paid: 0, payment_status: 'To Pay' });
     setShowPurchaseForm(true);
   };
 
@@ -92,8 +94,10 @@ export default function SupplierKhata() {
     setCommissionMode(e.commission_type || 'default'); setCustomPercent('');
     setShowUnitInput(false); setNewUnit('');
     setPurchForm({
-      product_id: '', date: e.date, quantity: e.quantity, rate: e.rate,
-      commission: e.commission || 0, bardana: e.bardana || 0, labour: e.labour || 0,
+      product_id: '', date: e.date, total_weight: e.total_weight || e.quantity, kaat: e.kaat || 0,
+      rate: e.rate, commission: e.commission || 0,
+      bardana: e.bardana || 0, labour: e.labour || 0,
+      munshiyana: e.munshiyana || 0, kiraya: e.kiraya || 0, others: e.others || 0,
       payment_mode: e.payment_mode || 'On Account', notes: e.notes || '',
       unit: e.display_unit || '', amount_paid: e.amount_paid || 0,
       payment_status: e.payment_status || 'To Pay'
@@ -117,7 +121,8 @@ export default function SupplierKhata() {
 
   const handleProductChange = (pid) => {
     const p = products.find(x => x.id === parseInt(pid));
-    let newCommission = commissionMode === 'default' ? recalcCommission(purchForm.quantity, purchForm.rate, pid) : calcCommission(purchForm.quantity, purchForm.rate, customPercent);
+    const safi = Math.max(0, (parseFloat(purchForm.total_weight) || 0) - (parseFloat(purchForm.kaat) || 0));
+    let newCommission = commissionMode === 'default' ? recalcCommission(safi, purchForm.rate, pid) : calcCommission(safi, purchForm.rate, customPercent);
     setPurchForm({ ...purchForm, product_id: pid, unit: p ? p.unit : '', commission: newCommission });
     setShowUnitInput(false);
     setNewUnit('');
@@ -136,9 +141,9 @@ export default function SupplierKhata() {
 
   const handlePurchaseSave = async (e) => {
     e.preventDefault();
-    const qty = parseFloat(purchForm.quantity) || 0;
+    const qty = safiWeight;
     if (!purchForm.product_id) return toast.error('Please select a product — جنس منتخب کریں');
-    if (qty <= 0) return toast.error('Quantity must be greater than 0');
+    if (qty <= 0) return toast.error('Safi Weight must be greater than 0');
 
     const amountPaid = parseFloat(purchForm.amount_paid) || 0;
     const paymentStatus = updatePaymentStatus(amountPaid);
@@ -149,7 +154,10 @@ export default function SupplierKhata() {
       labour: parseFloat(purchForm.labour) || 0, net_amount: purchNet,
       payment_mode: purchForm.payment_mode, notes: purchForm.notes,
       amount_paid: amountPaid, payment_status: paymentStatus,
-      unit: purchForm.unit || null, commission_type: commissionMode
+      unit: purchForm.unit || null, commission_type: commissionMode,
+      total_weight: parseFloat(purchForm.total_weight) || 0, kaat: parseFloat(purchForm.kaat) || 0,
+      munshiyana: parseFloat(purchForm.munshiyana) || 0, kiraya: parseFloat(purchForm.kiraya) || 0,
+      others: parseFloat(purchForm.others) || 0
     };
 
     if (editingPurchaseId) {
@@ -348,17 +356,40 @@ export default function SupplierKhata() {
                 </div>
               )}
             </div>
-            <div className="form-group"><label>Quantity — مقدار</label><input type="number" step="0.01" required value={purchForm.quantity} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => { const q = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(q, purchForm.rate) : calcCommission(q, purchForm.rate, customPercent); setPurchForm({ ...purchForm, quantity: q, commission: comm }); }} /></div>
-            <div className="form-group"><label>Rate (PKR) — نرخ</label><input type="number" step="0.01" required value={purchForm.rate} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(purchForm.quantity, r) : calcCommission(purchForm.quantity, r, customPercent); setPurchForm({ ...purchForm, rate: r, commission: comm }); }} /></div>
+            <div className="form-group">
+              <label>Total Weight — <span className="urdu">کل وزن</span></label>
+              <input type="number" step="0.01" required value={purchForm.total_weight} onKeyDown={blockInvalidChars} onWheel={preventScrollChange}
+                onChange={e => { const tw = e.target.value; const safi = Math.max(0, (parseFloat(tw) || 0) - (parseFloat(purchForm.kaat) || 0)); const comm = commissionMode === 'default' ? recalcCommission(safi, purchForm.rate) : calcCommission(safi, purchForm.rate, customPercent); setPurchForm({ ...purchForm, total_weight: tw, commission: comm }); }} />
+            </div>
+            <div className="form-group">
+              <label>Kaat — <span className="urdu">کاٹ</span></label>
+              <input type="number" step="0.01" value={purchForm.kaat} onKeyDown={blockInvalidChars} onWheel={preventScrollChange}
+                onChange={e => { const k = e.target.value; const safi = Math.max(0, (parseFloat(purchForm.total_weight) || 0) - (parseFloat(k) || 0)); const comm = commissionMode === 'default' ? recalcCommission(safi, purchForm.rate) : calcCommission(safi, purchForm.rate, customPercent); setPurchForm({ ...purchForm, kaat: k, commission: comm }); }} />
+            </div>
+            <div className="form-group">
+              <label>Safi Weight — <span className="urdu">صافی وزن</span></label>
+              <input type="number" value={safiWeight.toFixed(2)} readOnly style={{ opacity: 0.8, cursor: 'not-allowed', fontWeight: 700, color: 'var(--green)' }} />
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>Auto: Total Weight − Kaat</span>
+            </div>
+            <div className="form-group"><label>Rate — <span className="urdu">ریٹ</span></label><input type="number" step="0.01" required value={purchForm.rate} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => { const r = e.target.value; const comm = commissionMode === 'default' ? recalcCommission(safiWeight, r) : calcCommission(safiWeight, r, customPercent); setPurchForm({ ...purchForm, rate: r, commission: comm }); }} /></div>
+            <div className="form-group">
+              <label>Total Amount — <span className="urdu">کل رقم</span></label>
+              <input type="number" value={purchTotal.toFixed(2)} readOnly style={{ opacity: 0.8, cursor: 'not-allowed', fontWeight: 700 }} />
+            </div>
+            <div className="form-group"><label>Bardana — <span className="urdu">باردانہ</span></label><input type="number" step="0.01" value={purchForm.bardana} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setPurchForm({ ...purchForm, bardana: e.target.value })} /></div>
+            <div className="form-group"><label>Labour — <span className="urdu">مزدوری</span></label><input type="number" step="0.01" value={purchForm.labour} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setPurchForm({ ...purchForm, labour: e.target.value })} /></div>
+            <div className="form-group"><label>Munshiyana — <span className="urdu">مُنشِیانَہ</span></label><input type="number" step="0.01" value={purchForm.munshiyana} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setPurchForm({ ...purchForm, munshiyana: e.target.value })} /></div>
+            <div className="form-group"><label>Kiraya — <span className="urdu">کرایہ</span></label><input type="number" step="0.01" value={purchForm.kiraya} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setPurchForm({ ...purchForm, kiraya: e.target.value })} /></div>
+            <div className="form-group"><label>Others — <span className="urdu">دیگر</span></label><input type="number" step="0.01" value={purchForm.others} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setPurchForm({ ...purchForm, others: e.target.value })} /></div>
 
             {/* Commission with default/custom toggle */}
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
               <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>Commission — آڑت</span>
+                <span>Commission — <span className="urdu">کمیشن</span></span>
                 <span style={{ display: 'flex', gap: 4 }}>
-                  <button type="button" onClick={() => { setCommissionMode('default'); setCustomPercent(''); setPurchForm({ ...purchForm, commission: recalcCommission(purchForm.quantity, purchForm.rate) }); }}
+                  <button type="button" onClick={() => { setCommissionMode('default'); setCustomPercent(''); setPurchForm({ ...purchForm, commission: recalcCommission(safiWeight, purchForm.rate) }); }}
                     style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border)', background: commissionMode === 'default' ? 'var(--accent)' : 'transparent', color: commissionMode === 'default' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 600 }}>Default</button>
-                  <button type="button" onClick={() => { setCommissionMode('custom'); const dp = getDefaultPercent(purchForm.product_id); setCustomPercent(dp); setPurchForm({ ...purchForm, commission: calcCommission(purchForm.quantity, purchForm.rate, dp) }); }}
+                  <button type="button" onClick={() => { setCommissionMode('custom'); const dp = getDefaultPercent(purchForm.product_id); setCustomPercent(dp); setPurchForm({ ...purchForm, commission: calcCommission(safiWeight, purchForm.rate, dp) }); }}
                     style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border)', background: commissionMode === 'custom' ? 'var(--accent2)' : 'transparent', color: commissionMode === 'custom' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 600 }}>Custom</button>
                 </span>
               </label>
@@ -367,7 +398,7 @@ export default function SupplierKhata() {
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <div style={{ flex: '0 0 100px', position: 'relative' }}>
                       <input type="number" step="0.01" min="0" value={customPercent}
-                        onChange={e => { const pct = e.target.value; setCustomPercent(pct); setPurchForm({ ...purchForm, commission: calcCommission(purchForm.quantity, purchForm.rate, pct) }); }}
+                        onChange={e => { const pct = e.target.value; setCustomPercent(pct); setPurchForm({ ...purchForm, commission: calcCommission(safiWeight, purchForm.rate, pct) }); }}
                         style={{ borderColor: 'var(--accent2)', paddingRight: 28 }} placeholder="%" />
                       <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.85rem', pointerEvents: 'none' }}>%</span>
                     </div>
@@ -383,9 +414,6 @@ export default function SupplierKhata() {
                 </>
               )}
             </div>
-
-            <div className="form-group"><label>Bardana — بوری</label><input type="number" step="0.01" value={purchForm.bardana} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setPurchForm({ ...purchForm, bardana: e.target.value })} /></div>
-            <div className="form-group"><label>Labour — مزدوری</label><input type="number" step="0.01" value={purchForm.labour} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setPurchForm({ ...purchForm, labour: e.target.value })} /></div>
 
             {/* Payment to Supplier section */}
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -468,30 +496,54 @@ export default function SupplierKhata() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Quantity — مقدار</div>
-                  <div style={{ fontWeight: 700 }}>{formatNumber(e.quantity)} {e.display_unit || ''}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Total Weight — <span className="urdu">کل وزن</span></div>
+                  <div style={{ fontWeight: 700 }}>{formatNumber(e.total_weight || e.quantity)} {e.display_unit || ''}</div>
                 </div>
                 <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Rate — نرخ</div>
-                  <div style={{ fontWeight: 700 }}>{formatPKR(e.rate)}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Kaat — <span className="urdu">کاٹ</span></div>
+                  <div style={{ fontWeight: 700 }}>{formatNumber(e.kaat || 0)}</div>
                 </div>
                 <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Total — کل رقم</div>
-                  <div style={{ fontWeight: 700 }}>{formatPKR(e.total)}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Safi Weight — <span className="urdu">صافی وزن</span></div>
+                  <div style={{ fontWeight: 700, color: 'var(--green)' }}>{formatNumber(e.quantity)} {e.display_unit || ''}</div>
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Commission — آڑت</div>
-                  <div style={{ fontWeight: 700, color: 'var(--accent2)' }}>{formatPKR(e.commission || 0)}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Rate — <span className="urdu">ریٹ</span></div>
+                  <div style={{ fontWeight: 700 }}>{formatPKR(e.rate)}</div>
                 </div>
                 <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Bardana — بوری</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Total — <span className="urdu">کل رقم</span></div>
+                  <div style={{ fontWeight: 700 }}>{formatPKR(e.total)}</div>
+                </div>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Commission — <span className="urdu">کمیشن</span></div>
+                  <div style={{ fontWeight: 700, color: 'var(--accent2)' }}>{formatPKR(e.commission || 0)}</div>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Bardana — <span className="urdu">باردانہ</span></div>
                   <div style={{ fontWeight: 700 }}>{formatPKR(e.bardana || 0)}</div>
                 </div>
                 <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Labour — مزدوری</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Labour — <span className="urdu">مزدوری</span></div>
                   <div style={{ fontWeight: 700 }}>{formatPKR(e.labour || 0)}</div>
+                </div>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Munshiyana — <span className="urdu">مُنشِیانَہ</span></div>
+                  <div style={{ fontWeight: 700 }}>{formatPKR(e.munshiyana || 0)}</div>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Kiraya — <span className="urdu">کرایہ</span></div>
+                  <div style={{ fontWeight: 700 }}>{formatPKR(e.kiraya || 0)}</div>
+                </div>
+                <div style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Others — <span className="urdu">دیگر</span></div>
+                  <div style={{ fontWeight: 700 }}>{formatPKR(e.others || 0)}</div>
                 </div>
               </div>
               <div style={{ padding: '14px 18px', background: 'linear-gradient(135deg, rgba(46,204,113,0.1), rgba(46,204,113,0.05))', borderRadius: 12, border: '1px solid var(--accent2)' }}>
