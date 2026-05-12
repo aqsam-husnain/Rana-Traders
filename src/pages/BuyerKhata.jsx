@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MdArrowBack, MdAdd, MdDelete, MdPayment, MdPointOfSale, MdPerson, MdPhone, MdBadge, MdLocationOn, MdClose } from 'react-icons/md';
+import { MdArrowBack, MdAdd, MdDelete, MdEdit, MdPayment, MdPointOfSale, MdPerson, MdPhone, MdBadge, MdLocationOn, MdClose } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
 import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
@@ -37,6 +37,7 @@ export default function BuyerKhata() {
     bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '',
     amount_paid: 0, payment_status: 'To Receive'
   });
+  const [editingSaleId, setEditingSaleId] = useState(null);
 
   useEffect(() => { loadAll(); }, [id]);
 
@@ -98,10 +99,34 @@ export default function BuyerKhata() {
   };
 
   const openSaleForm = () => {
+    setEditingSaleId(null);
     setCommissionMode('default'); setCustomPercent('');
     setShowUnitInput(false); setNewUnit('');
     setSaleForm({ product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '', amount_paid: 0, payment_status: 'To Receive' });
     setAvailableStock(null); setStockError('');
+    setShowSaleForm(true);
+  };
+
+  const openEditSaleForm = async (e) => {
+    setEditingSaleId(e.sale_id);
+    setCommissionMode(e.commission_type || 'default'); setCustomPercent('');
+    setShowUnitInput(false); setNewUnit('');
+    setSaleForm({
+      product_id: '', date: e.date, quantity: e.quantity, rate: e.rate,
+      commission: e.commission || 0, bardana: e.bardana || 0, labour: e.labour || 0,
+      payment_mode: e.payment_mode || 'On Account', notes: e.notes || '',
+      unit: e.display_unit || '', amount_paid: e.amount_paid || 0,
+      payment_status: e.payment_status || 'To Receive'
+    });
+    // Load the full sale record to get product_id
+    const sale = await window.api.getSale(e.sale_id);
+    if (sale) {
+      setSaleForm(prev => ({ ...prev, product_id: String(sale.product_id), unit: sale.unit || prev.unit }));
+      if (e.commission_type === 'custom' && sale.total > 0 && sale.commission > 0) {
+        setCustomPercent(((sale.commission / sale.total) * 100).toFixed(2));
+      }
+      await checkStock(sale.product_id);
+    }
     setShowSaleForm(true);
   };
 
@@ -137,14 +162,18 @@ export default function BuyerKhata() {
     const qty = parseFloat(saleForm.quantity) || 0;
     if (!saleForm.product_id) return toast.error('Please select a product — جنس منتخب کریں');
     if (qty <= 0) return toast.error('Quantity must be greater than 0');
-    const currentStock = await window.api.getProductStock(parseInt(saleForm.product_id));
-    if (currentStock <= 0) return toast.error('Cannot save sale — this product is out of stock!');
+
+    let currentStock = await window.api.getProductStock(parseInt(saleForm.product_id));
+    if (editingSaleId) {
+      const orig = await window.api.getSale(editingSaleId);
+      if (orig && orig.product_id === parseInt(saleForm.product_id)) currentStock += orig.quantity;
+    }
+    if (currentStock <= 0 && !editingSaleId) return toast.error('Cannot save sale — this product is out of stock!');
     if (qty > currentStock) return toast.error(`Cannot save — not enough stock! Available: ${formatNumber(currentStock)}, Requested: ${formatNumber(qty)}`);
 
     const amountPaid = parseFloat(saleForm.amount_paid) || 0;
     const paymentStatus = updatePaymentStatus(amountPaid);
-
-    await window.api.addSale({
+    const payload = {
       buyer_id: parseInt(id), product_id: parseInt(saleForm.product_id), date: saleForm.date,
       quantity: qty, rate: parseFloat(saleForm.rate), total: saleTotal,
       commission: parseFloat(saleForm.commission) || 0, bardana: parseFloat(saleForm.bardana) || 0,
@@ -152,10 +181,17 @@ export default function BuyerKhata() {
       payment_mode: saleForm.payment_mode, notes: saleForm.notes,
       amount_paid: amountPaid, payment_status: paymentStatus,
       unit: saleForm.unit || null, commission_type: commissionMode
-    });
-    setShowSaleForm(false);
+    };
+
+    if (editingSaleId) {
+      await window.api.updateSale(editingSaleId, payload);
+      toast.success('Sale updated successfully! — فروخت اپ ڈیٹ ہو گئی');
+    } else {
+      await window.api.addSale(payload);
+      toast.success('Sale saved successfully! — فروخت محفوظ ہو گئی');
+    }
+    setShowSaleForm(false); setEditingSaleId(null);
     loadAll();
-    toast.success('Sale saved successfully! — فروخت محفوظ ہو گئی');
   };
 
   const handleDeletePayment = async (paymentId) => {
@@ -297,7 +333,7 @@ export default function BuyerKhata() {
                     <td className="amount" style={{ fontWeight: 700 }}>{formatPKR(bal)}</td>
                     <td>
                       {e.type === 'Payment' && e.payment_id ? <button className="btn btn-sm btn-danger" onClick={(ev) => { ev.stopPropagation(); handleDeletePayment(e.payment_id); }} title="Delete Payment"><MdDelete /></button> : ''}
-                      {e.type === 'Sale' && e.sale_id ? <button className="btn btn-sm btn-danger" onClick={(ev) => { ev.stopPropagation(); handleDeleteSale(e.sale_id); }} title="Delete Sale"><MdDelete /></button> : ''}
+                      {e.type === 'Sale' && e.sale_id ? <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}><button className="btn btn-sm btn-secondary" onClick={(ev) => { ev.stopPropagation(); openEditSaleForm(e); }} title="Edit Sale"><MdEdit /></button><button className="btn btn-sm btn-danger" onClick={(ev) => { ev.stopPropagation(); handleDeleteSale(e.sale_id); }} title="Delete Sale"><MdDelete /></button></div> : ''}
                     </td>
                   </tr>
                 );
@@ -335,7 +371,7 @@ export default function BuyerKhata() {
       </Modal>
 
       {/* Sale Modal */}
-      <Modal show={showSaleForm} onClose={() => setShowSaleForm(false)} title={<>New Sale to {buyer.name} — <span className="urdu">نئی فروخت</span></>} large>
+      <Modal show={showSaleForm} onClose={() => { setShowSaleForm(false); setEditingSaleId(null); }} title={editingSaleId ? <>Edit Sale — <span className="urdu">فروخت میں ترمیم</span></> : <>New Sale to {buyer.name} — <span className="urdu">نئی فروخت</span></>} large>
         <form onSubmit={handleSaleSave}>
           <div className="form-grid">
             <div className="form-group"><label>Date & Time</label><input type="datetime-local" required value={saleForm.date} onChange={e => setSaleForm({ ...saleForm, date: e.target.value })} /></div>
@@ -466,7 +502,7 @@ export default function BuyerKhata() {
             <div className="form-group"><label>Notes — نوٹ</label><input value={saleForm.notes} onChange={e => setSaleForm({ ...saleForm, notes: e.target.value })} /></div>
           </div>
           <div className="totals-bar"><span>Total: <strong>{formatPKR(saleTotal)}</strong></span><span>Net: <strong className="amount positive" style={{ fontSize: '1.1rem' }}>{formatPKR(saleNet)}</strong></span></div>
-          <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => setShowSaleForm(false)}>Cancel</button><button type="submit" className="btn btn-primary" disabled={!!stockError}>Save Sale</button></div>
+          <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => { setShowSaleForm(false); setEditingSaleId(null); }}>Cancel</button><button type="submit" className="btn btn-primary" disabled={!!stockError}>{editingSaleId ? 'Update Sale' : 'Save Sale'}</button></div>
         </form>
       </Modal>
 

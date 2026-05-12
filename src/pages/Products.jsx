@@ -12,7 +12,7 @@ export default function Products() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ name: '', name_urdu: '', unit: '', commission_rate: '', opening_stock: '', status: 'Active' });
+  const [form, setForm] = useState({ name: '', name_urdu: '', unit: 'KG', commission_rate: '', opening_stock: '', status: 'Active' });
   const [newUnit, setNewUnit] = useState('');
   const [showUnitInput, setShowUnitInput] = useState(false);
   const toast = useToast();
@@ -29,7 +29,7 @@ export default function Products() {
   };
 
   const resetForm = () => {
-    setForm({ name: '', name_urdu: '', unit: '', commission_rate: '', opening_stock: '', status: 'Active' });
+    setForm({ name: '', name_urdu: '', unit: 'KG', commission_rate: '', opening_stock: '', status: 'Active' });
     setShowUnitInput(false);
     setNewUnit('');
   };

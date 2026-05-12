@@ -109,6 +109,9 @@ function runMigrations() {
   // Sale payment tracking — how much received from buyer at time of sale
   try { db.run('ALTER TABLE sales ADD COLUMN amount_paid REAL DEFAULT 0'); } catch (e) { /* already exists */ }
   try { db.run("ALTER TABLE sales ADD COLUMN payment_status TEXT DEFAULT 'To Receive'"); } catch (e) { /* already exists */ }
+
+  // Seed default unit KG if not present
+  db.run("INSERT OR IGNORE INTO units (name) VALUES ('KG')");
 }
 function saveDb() {
   const data = db.export();

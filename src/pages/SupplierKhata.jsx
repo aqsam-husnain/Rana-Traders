@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MdArrowBack, MdAdd, MdDelete, MdPayment, MdShoppingCart, MdPerson, MdPhone, MdBadge, MdLocationOn, MdClose } from 'react-icons/md';
+import { MdArrowBack, MdAdd, MdDelete, MdEdit, MdPayment, MdShoppingCart, MdPerson, MdPhone, MdBadge, MdLocationOn, MdClose } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
 import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
@@ -35,6 +35,7 @@ export default function SupplierKhata() {
     bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '',
     amount_paid: 0, payment_status: 'To Pay'
   });
+  const [editingPurchaseId, setEditingPurchaseId] = useState(null);
 
   useEffect(() => { loadAll(); }, [id]);
 
@@ -79,9 +80,31 @@ export default function SupplierKhata() {
   const recalcCommission = (qty, rate, pid) => calcCommission(qty, rate, getDefaultPercent(pid));
 
   const openPurchaseForm = () => {
+    setEditingPurchaseId(null);
     setCommissionMode('default'); setCustomPercent('');
     setShowUnitInput(false); setNewUnit('');
     setPurchForm({ product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '', amount_paid: 0, payment_status: 'To Pay' });
+    setShowPurchaseForm(true);
+  };
+
+  const openEditPurchaseForm = async (e) => {
+    setEditingPurchaseId(e.purchase_id);
+    setCommissionMode(e.commission_type || 'default'); setCustomPercent('');
+    setShowUnitInput(false); setNewUnit('');
+    setPurchForm({
+      product_id: '', date: e.date, quantity: e.quantity, rate: e.rate,
+      commission: e.commission || 0, bardana: e.bardana || 0, labour: e.labour || 0,
+      payment_mode: e.payment_mode || 'On Account', notes: e.notes || '',
+      unit: e.display_unit || '', amount_paid: e.amount_paid || 0,
+      payment_status: e.payment_status || 'To Pay'
+    });
+    const purchase = await window.api.getPurchase(e.purchase_id);
+    if (purchase) {
+      setPurchForm(prev => ({ ...prev, product_id: String(purchase.product_id), unit: purchase.unit || prev.unit }));
+      if (e.commission_type === 'custom' && purchase.total > 0 && purchase.commission > 0) {
+        setCustomPercent(((purchase.commission / purchase.total) * 100).toFixed(2));
+      }
+    }
     setShowPurchaseForm(true);
   };
 
@@ -119,8 +142,7 @@ export default function SupplierKhata() {
 
     const amountPaid = parseFloat(purchForm.amount_paid) || 0;
     const paymentStatus = updatePaymentStatus(amountPaid);
-
-    await window.api.addPurchase({
+    const payload = {
       supplier_id: parseInt(id), product_id: parseInt(purchForm.product_id), date: purchForm.date,
       quantity: qty, rate: parseFloat(purchForm.rate), total: purchTotal,
       commission: parseFloat(purchForm.commission) || 0, bardana: parseFloat(purchForm.bardana) || 0,
@@ -128,10 +150,17 @@ export default function SupplierKhata() {
       payment_mode: purchForm.payment_mode, notes: purchForm.notes,
       amount_paid: amountPaid, payment_status: paymentStatus,
       unit: purchForm.unit || null, commission_type: commissionMode
-    });
-    setShowPurchaseForm(false);
+    };
+
+    if (editingPurchaseId) {
+      await window.api.updatePurchase(editingPurchaseId, payload);
+      toast.success('Purchase updated successfully! — خریداری اپ ڈیٹ ہو گئی');
+    } else {
+      await window.api.addPurchase(payload);
+      toast.success('Purchase saved successfully! — خریداری محفوظ ہو گئی');
+    }
+    setShowPurchaseForm(false); setEditingPurchaseId(null);
     loadAll();
-    toast.success('Purchase saved successfully! — خریداری محفوظ ہو گئی');
   };
 
   const handleDeletePayment = async (paymentId) => {
@@ -250,7 +279,7 @@ export default function SupplierKhata() {
                     <td className="amount" style={{ fontWeight: 700 }}>{formatPKR(bal)}</td>
                     <td>
                       {e.type === 'Payment' && e.payment_id ? <button className="btn btn-sm btn-danger" onClick={(ev) => { ev.stopPropagation(); handleDeletePayment(e.payment_id); }} title="Delete"><MdDelete /></button> : ''}
-                      {e.type === 'Purchase' && e.purchase_id ? <button className="btn btn-sm btn-danger" onClick={(ev) => { ev.stopPropagation(); handleDeletePurchase(e.purchase_id); }} title="Delete"><MdDelete /></button> : ''}
+                      {e.type === 'Purchase' && e.purchase_id ? <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}><button className="btn btn-sm btn-secondary" onClick={(ev) => { ev.stopPropagation(); openEditPurchaseForm(e); }} title="Edit"><MdEdit /></button><button className="btn btn-sm btn-danger" onClick={(ev) => { ev.stopPropagation(); handleDeletePurchase(e.purchase_id); }} title="Delete"><MdDelete /></button></div> : ''}
                     </td>
                   </tr>
                 );
@@ -288,7 +317,7 @@ export default function SupplierKhata() {
       </Modal>
 
       {/* Purchase Modal */}
-      <Modal show={showPurchaseForm} onClose={() => setShowPurchaseForm(false)} title={<>New Purchase from {supplier.name} — <span className="urdu">نئی خریداری</span></>} large>
+      <Modal show={showPurchaseForm} onClose={() => { setShowPurchaseForm(false); setEditingPurchaseId(null); }} title={editingPurchaseId ? <>Edit Purchase — <span className="urdu">خریداری میں ترمیم</span></> : <>New Purchase from {supplier.name} — <span className="urdu">نئی خریداری</span></>} large>
         <form onSubmit={handlePurchaseSave}>
           <div className="form-grid">
             <div className="form-group"><label>Date & Time — تاریخ و وقت</label><input type="datetime-local" required value={purchForm.date} onChange={e => setPurchForm({ ...purchForm, date: e.target.value })} /></div>
@@ -416,7 +445,7 @@ export default function SupplierKhata() {
             <div className="form-group"><label>Notes — نوٹ</label><input value={purchForm.notes} onChange={e => setPurchForm({ ...purchForm, notes: e.target.value })} /></div>
           </div>
           <div className="totals-bar"><span>Total: <strong>{formatPKR(purchTotal)}</strong></span><span>Net Amount: <strong className="amount" style={{ fontSize: '1.1rem', color: 'var(--accent2)' }}>{formatPKR(purchNet)}</strong></span></div>
-          <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => setShowPurchaseForm(false)}>Cancel</button><button type="submit" className="btn btn-primary">Save Purchase</button></div>
+          <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => { setShowPurchaseForm(false); setEditingPurchaseId(null); }}>Cancel</button><button type="submit" className="btn btn-primary">{editingPurchaseId ? 'Update Purchase' : 'Save Purchase'}</button></div>
         </form>
       </Modal>
 

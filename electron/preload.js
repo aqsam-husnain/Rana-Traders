@@ -31,11 +31,15 @@ contextBridge.exposeInMainWorld('api', {
   getProductStock: (productId) => ipcRenderer.invoke('get-product-stock', productId),
   // Sales
   getSales: (f) => ipcRenderer.invoke('get-sales', f),
+  getSale: (id) => ipcRenderer.invoke('get-sale', id),
   addSale: (d) => ipcRenderer.invoke('add-sale', d),
+  updateSale: (id, d) => ipcRenderer.invoke('update-sale', id, d),
   deleteSale: (id) => ipcRenderer.invoke('delete-sale', id),
   // Purchases
   getPurchases: (f) => ipcRenderer.invoke('get-purchases', f),
+  getPurchase: (id) => ipcRenderer.invoke('get-purchase', id),
   addPurchase: (d) => ipcRenderer.invoke('add-purchase', d),
+  updatePurchase: (id, d) => ipcRenderer.invoke('update-purchase', id, d),
   deletePurchase: (id) => ipcRenderer.invoke('delete-purchase', id),
   // Payments
   getPayments: (f) => ipcRenderer.invoke('get-payments', f),

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { MdAdd, MdDelete, MdPerson, MdPersonOutline, MdClose } from 'react-icons/md';
+import { MdAdd, MdDelete, MdEdit, MdPerson, MdPersonOutline, MdClose } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
 import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
+import SearchableSelect from '../components/SearchableSelect';
 import { useToast } from '../components/Toast';
 import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
 
@@ -15,13 +16,14 @@ export default function Purchases() {
   const [products, setProducts] = useState([]);
   const [units, setUnits] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [partyType, setPartyType] = useState('Regular');
   const [walkInName, setWalkInName] = useState('');
   const [commissionMode, setCommissionMode] = useState('default');
   const [customPercent, setCustomPercent] = useState('');
   const [showUnitInput, setShowUnitInput] = useState(false);
   const [newUnit, setNewUnit] = useState('');
-  const [form, setForm] = useState({ supplier_id: '', product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', amount_paid: 0, payment_status: 'To Pay', unit: '' });
+  const [form, setForm] = useState({ supplier_id: '', product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', amount_paid: 0, payment_status: 'To Pay', unit: 'KG' });
 
   useEffect(() => { load(); }, []);
   const load = async () => {
@@ -53,9 +55,29 @@ export default function Purchases() {
   };
 
   const openForm = () => {
+    setEditingId(null);
     setPartyType('Regular'); setWalkInName(''); setCommissionMode('default'); setCustomPercent('');
     setShowUnitInput(false); setNewUnit('');
-    setForm({ supplier_id: '', product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', amount_paid: 0, payment_status: 'To Pay', unit: '' });
+    setForm({ supplier_id: '', product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', amount_paid: 0, payment_status: 'To Pay', unit: 'KG' });
+    setShowForm(true);
+  };
+
+  const openEditForm = (p) => {
+    setEditingId(p.id);
+    setPartyType('Regular'); setWalkInName('');
+    setCommissionMode(p.commission_type || 'default'); setCustomPercent('');
+    setShowUnitInput(false); setNewUnit('');
+    setForm({
+      supplier_id: String(p.supplier_id), product_id: String(p.product_id), date: p.date,
+      quantity: p.quantity, rate: p.rate, commission: p.commission || 0,
+      bardana: p.bardana || 0, labour: p.labour || 0,
+      payment_mode: p.payment_mode || 'On Account', notes: p.notes || '',
+      amount_paid: p.amount_paid || 0, payment_status: p.payment_status || 'To Pay',
+      unit: p.display_unit || p.product_unit || 'KG'
+    });
+    if (p.commission_type === 'custom' && p.total > 0 && p.commission > 0) {
+      setCustomPercent(((p.commission / p.total) * 100).toFixed(2));
+    }
     setShowForm(true);
   };
 
@@ -88,8 +110,7 @@ export default function Purchases() {
 
     const amountPaid = parseFloat(form.amount_paid) || 0;
     const paymentStatus = updatePaymentStatus(amountPaid);
-
-    await window.api.addPurchase({
+    const payload = {
       supplier_id: supplierId, product_id: parseInt(form.product_id), date: form.date,
       quantity: qty, rate: parseFloat(form.rate), total,
       commission: parseFloat(form.commission) || 0, bardana: parseFloat(form.bardana) || 0,
@@ -97,9 +118,16 @@ export default function Purchases() {
       payment_mode: form.payment_mode, notes: form.notes,
       amount_paid: amountPaid, payment_status: paymentStatus,
       unit: form.unit || null, commission_type: commissionMode
-    });
-    setShowForm(false); load();
-    toast.success('Purchase saved successfully! — خریداری محفوظ ہو گئی');
+    };
+
+    if (editingId) {
+      await window.api.updatePurchase(editingId, payload);
+      toast.success('Purchase updated successfully! — خریداری اپ ڈیٹ ہو گئی');
+    } else {
+      await window.api.addPurchase(payload);
+      toast.success('Purchase saved successfully! — خریداری محفوظ ہو گئی');
+    }
+    setShowForm(false); setEditingId(null); load();
   };
   const handleDelete = async (id) => { if (confirmAction('Delete this purchase?')) { await window.api.deletePurchase(id); load(); toast.success('Purchase deleted — خریداری حذف ہو گئی'); } };
 
@@ -135,17 +163,17 @@ export default function Purchases() {
         <table className="data-table">
           <thead><tr><th>#</th><th>Date</th><th>Supplier</th><th>Product</th><th>Qty</th><th>Rate</th><th>Total</th><th>Comm.</th><th>Net</th><th>Payment</th><th>Paid</th><th></th></tr></thead>
           <tbody>
-            {purchases.map((p, i) => (<tr key={p.id}><td>{i + 1}</td><td>{formatDate(p.date)}</td><td>{p.supplier_name || '—'}{p.supplier_name_urdu ? <><br/><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{p.supplier_name_urdu}</span></> : ''}</td><td>{p.product_name}{p.product_name_urdu ? <><br/><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{p.product_name_urdu}</span></> : ''}</td><td>{p.quantity} {p.display_unit || p.product_unit}</td><td>{formatPKR(p.rate)}</td><td className="amount">{formatPKR(p.total)}</td><td className="amount">{formatPKR(p.commission)}</td><td className="amount" style={{ fontWeight: 700 }}>{formatPKR(p.net_amount)}</td><td><span className={`badge ${statusBadge(p.payment_status || 'To Pay')}`}>{p.payment_status || 'To Pay'}</span></td><td className="amount">{formatPKR(p.amount_paid || 0)}</td><td><button className="btn btn-sm btn-danger" onClick={() => handleDelete(p.id)}><MdDelete /></button></td></tr>))}
+            {purchases.map((p, i) => (<tr key={p.id}><td>{i + 1}</td><td>{formatDate(p.date)}</td><td>{p.supplier_name || '—'}{p.supplier_name_urdu ? <><br/><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{p.supplier_name_urdu}</span></> : ''}</td><td>{p.product_name}{p.product_name_urdu ? <><br/><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{p.product_name_urdu}</span></> : ''}</td><td>{p.quantity} {p.display_unit || p.product_unit}</td><td>{formatPKR(p.rate)}</td><td className="amount">{formatPKR(p.total)}</td><td className="amount">{formatPKR(p.commission)}</td><td className="amount" style={{ fontWeight: 700 }}>{formatPKR(p.net_amount)}</td><td><span className={`badge ${statusBadge(p.payment_status || 'To Pay')}`}>{p.payment_status || 'To Pay'}</span></td><td className="amount">{formatPKR(p.amount_paid || 0)}</td><td><div style={{ display: 'flex', gap: 4, alignItems: 'center' }}><button className="btn btn-sm btn-secondary" onClick={() => openEditForm(p)} title="Edit"><MdEdit /></button><button className="btn btn-sm btn-danger" onClick={() => handleDelete(p.id)} title="Delete"><MdDelete /></button></div></td></tr>))}
             {purchases.length === 0 && <tr><td colSpan={12} className="text-center" style={{ padding: 40, color: 'var(--text-muted)' }}>No purchases yet</td></tr>}
           </tbody>
         </table>
       </div>
-      <Modal show={showForm} onClose={() => setShowForm(false)} title={<>New Purchase — <span className="urdu">نئی خریداری</span></>} large>
+      <Modal show={showForm} onClose={() => { setShowForm(false); setEditingId(null); }} title={editingId ? <>Edit Purchase — <span className="urdu">خریداری میں ترمیم</span></> : <>New Purchase — <span className="urdu">نئی خریداری</span></>} large>
         <form onSubmit={handleSave}>
           <div style={{ marginBottom: 20 }}><label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8, display: 'block' }}>Supplier Type — سپلائر کی قسم</label><div className="tabs" style={{ marginBottom: 0 }}><button type="button" className={`tab ${partyType === 'Regular' ? 'active' : ''}`} onClick={() => switchPartyType('Regular')}><MdPerson style={{ verticalAlign: 'middle', marginRight: 4 }} /> Regular — باقاعدہ</button><button type="button" className={`tab ${partyType === 'Walk-in' ? 'active' : ''}`} onClick={() => switchPartyType('Walk-in')}><MdPersonOutline style={{ verticalAlign: 'middle', marginRight: 4 }} /> Walk-in — فوری</button></div></div>
           <div className="form-grid">
             <div className="form-group"><label>Date & Time — تاریخ و وقت</label><input type="datetime-local" required value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
-            {partyType === 'Regular' ? (<div className="form-group"><label>Supplier — سپلائر</label><select required value={form.supplier_id} onChange={e => setForm({ ...form, supplier_id: e.target.value })}><option value="">Select Supplier</option>{suppliers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>) : (<div className="form-group"><label>Walk-in Name — فوری سپلائر</label><input value={walkInName} onChange={e => setWalkInName(e.target.value)} placeholder="Walk-in Supplier" style={{ borderColor: 'var(--accent2)', background: 'var(--accent2-glow)' }} /></div>)}
+            {partyType === 'Regular' ? (<div className="form-group"><label>Supplier — سپلائر</label><SearchableSelect required value={form.supplier_id} onChange={val => setForm({ ...form, supplier_id: val })} placeholder="Search Supplier — سپلائر تلاش کریں" options={suppliers.map(d => ({ value: String(d.id), label: d.name, labelUrdu: d.name_urdu || '', searchText: `${d.name} ${d.name_urdu || ''}` }))} /></div>) : (<div className="form-group"><label>Walk-in Name — فوری سپلائر</label><input value={walkInName} onChange={e => setWalkInName(e.target.value)} placeholder="Walk-in Supplier" style={{ borderColor: 'var(--accent2)', background: 'var(--accent2-glow)' }} /></div>)}
             {/* Product dropdown — name only, no unit in brackets */}
             <div className="form-group"><label>Product — جنس</label><select required value={form.product_id} onChange={e => handleProductChange(e.target.value)}><option value="">Select Product</option>{products.filter(p => p.status === 'Active').map(p => <option key={p.id} value={p.id}>{p.name} — {p.name_urdu}</option>)}</select></div>
 
@@ -268,7 +296,7 @@ export default function Purchases() {
             <div className="form-group"><label>Notes — نوٹ</label><input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></div>
           </div>
           <div className="totals-bar"><span>Total: <strong>{formatPKR(total)}</strong></span><span>Net Amount: <strong className="amount" style={{ fontSize: '1.1rem', color: 'var(--accent2)' }}>{formatPKR(net)}</strong></span></div>
-          <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button><button type="submit" className="btn btn-primary">Save Purchase</button></div>
+          <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancel</button><button type="submit" className="btn btn-primary">{editingId ? 'Update Purchase' : 'Save Purchase'}</button></div>
         </form>
       </Modal>
     </div>

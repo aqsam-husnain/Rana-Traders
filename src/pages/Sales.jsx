@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { MdAdd, MdDelete, MdPerson, MdPersonOutline, MdWarning, MdClose } from 'react-icons/md';
+import { MdAdd, MdDelete, MdEdit, MdPerson, MdPersonOutline, MdWarning, MdClose } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
 import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
+import SearchableSelect from '../components/SearchableSelect';
 import { useToast } from '../components/Toast';
 import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
 
@@ -15,6 +16,7 @@ export default function Sales() {
   const [products, setProducts] = useState([]);
   const [units, setUnits] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [availableStock, setAvailableStock] = useState(null);
   const [stockError, setStockError] = useState('');
   const [commissionMode, setCommissionMode] = useState('default');
@@ -27,7 +29,7 @@ export default function Sales() {
   const [form, setForm] = useState({
     buyer_id: '', product_id: '', date: todayISO(),
     quantity: '', rate: '', commission: 0, bardana: 0, labour: 0,
-    payment_mode: 'On Account', notes: '', unit: '',
+    payment_mode: 'On Account', notes: '', unit: 'KG',
     amount_paid: 0, payment_status: 'To Receive'
   });
 
@@ -84,10 +86,31 @@ export default function Sales() {
   };
 
   const openForm = () => {
+    setEditingId(null);
     setPartyType('Regular'); setWalkInName(''); setCommissionMode('default'); setCustomPercent('');
     setShowUnitInput(false); setNewUnit('');
-    setForm({ buyer_id: '', product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: '', amount_paid: 0, payment_status: 'To Receive' });
+    setForm({ buyer_id: '', product_id: '', date: todayISO(), quantity: '', rate: '', commission: 0, bardana: 0, labour: 0, payment_mode: 'On Account', notes: '', unit: 'KG', amount_paid: 0, payment_status: 'To Receive' });
     setAvailableStock(null); setStockError('');
+    setShowForm(true);
+  };
+
+  const openEditForm = async (s) => {
+    setEditingId(s.id);
+    setPartyType('Regular'); setWalkInName('');
+    setCommissionMode(s.commission_type || 'default'); setCustomPercent('');
+    setShowUnitInput(false); setNewUnit('');
+    setForm({
+      buyer_id: String(s.buyer_id), product_id: String(s.product_id), date: s.date,
+      quantity: s.quantity, rate: s.rate, commission: s.commission || 0,
+      bardana: s.bardana || 0, labour: s.labour || 0,
+      payment_mode: s.payment_mode || 'On Account', notes: s.notes || '',
+      unit: s.display_unit || s.product_unit || 'KG',
+      amount_paid: s.amount_paid || 0, payment_status: s.payment_status || 'To Receive'
+    });
+    if (s.commission_type === 'custom' && s.total > 0 && s.commission > 0) {
+      setCustomPercent(((s.commission / s.total) * 100).toFixed(2));
+    }
+    await checkStock(s.product_id);
     setShowForm(true);
   };
 
@@ -114,9 +137,15 @@ export default function Sales() {
     const qty = parseFloat(form.quantity) || 0;
     if (!form.product_id) return toast.error('Please select a product — جنس منتخب کریں');
     if (qty <= 0) return toast.error('Quantity must be greater than 0 — مقدار صفر سے زیادہ ہونی چاہیے');
-    const currentStock = await window.api.getProductStock(parseInt(form.product_id));
-    if (currentStock <= 0) return toast.error('Cannot save sale — this product is out of stock! اس جنس کا اسٹاک ختم ہو گیا ہے');
-    if (qty > currentStock) return toast.error(`Cannot save sale — not enough stock! Available: ${formatNumber(currentStock)}, Requested: ${formatNumber(qty)}`);
+
+    // Stock check: when editing, add back the original qty to available stock
+    let currentStock = await window.api.getProductStock(parseInt(form.product_id));
+    if (editingId) {
+      const orig = await window.api.getSale(editingId);
+      if (orig && orig.product_id === parseInt(form.product_id)) currentStock += orig.quantity;
+    }
+    if (currentStock <= 0 && !editingId) return toast.error('Cannot save sale — this product is out of stock!');
+    if (qty > currentStock) return toast.error(`Not enough stock! Available: ${formatNumber(currentStock)}, Requested: ${formatNumber(qty)}`);
 
     let buyerId;
     if (partyType === 'Walk-in') {
@@ -129,8 +158,7 @@ export default function Sales() {
 
     const amountPaid = parseFloat(form.amount_paid) || 0;
     const paymentStatus = updatePaymentStatus(amountPaid);
-
-    await window.api.addSale({
+    const payload = {
       buyer_id: buyerId, product_id: parseInt(form.product_id), date: form.date,
       quantity: qty, rate: parseFloat(form.rate), total,
       commission: parseFloat(form.commission) || 0, bardana: parseFloat(form.bardana) || 0,
@@ -138,9 +166,16 @@ export default function Sales() {
       payment_mode: form.payment_mode, notes: form.notes,
       amount_paid: amountPaid, payment_status: paymentStatus,
       unit: form.unit || null, commission_type: commissionMode
-    });
-    setShowForm(false); load();
-    toast.success('Sale saved successfully! — فروخت محفوظ ہو گئی');
+    };
+
+    if (editingId) {
+      await window.api.updateSale(editingId, payload);
+      toast.success('Sale updated successfully! — فروخت اپ ڈیٹ ہو گئی');
+    } else {
+      await window.api.addSale(payload);
+      toast.success('Sale saved successfully! — فروخت محفوظ ہو گئی');
+    }
+    setShowForm(false); setEditingId(null); load();
   };
 
   const handleDelete = async (id) => { if (confirmAction('Delete this sale entry?')) { await window.api.deleteSale(id); load(); toast.success('Sale deleted — فروخت حذف ہو گئی'); } };
@@ -190,7 +225,7 @@ export default function Sales() {
                 <td className="amount">{formatPKR(s.commission)}</td><td className="amount" style={{ fontWeight: 700 }}>{formatPKR(s.net_amount)}</td>
                 <td><span className={`badge ${statusBadge(s.payment_status || 'To Receive')}`}>{s.payment_status || 'To Receive'}</span></td>
                 <td className="amount">{formatPKR(s.amount_paid || 0)}</td>
-                <td><button className="btn btn-sm btn-danger" onClick={() => handleDelete(s.id)}><MdDelete /></button></td>
+                <td><div style={{ display: 'flex', gap: 4, alignItems: 'center' }}><button className="btn btn-sm btn-secondary" onClick={() => openEditForm(s)} title="Edit"><MdEdit /></button><button className="btn btn-sm btn-danger" onClick={() => handleDelete(s.id)} title="Delete"><MdDelete /></button></div></td>
               </tr>
             ))}
             {sales.length === 0 && <tr><td colSpan={12} className="text-center" style={{ padding: 40, color: 'var(--text-muted)' }}>No sales yet</td></tr>}
@@ -198,7 +233,7 @@ export default function Sales() {
         </table>
       </div>
 
-      <Modal show={showForm} onClose={() => setShowForm(false)} title={<>New Sale — <span className="urdu">نئی فروخت</span></>} large>
+      <Modal show={showForm} onClose={() => { setShowForm(false); setEditingId(null); }} title={editingId ? <>Edit Sale — <span className="urdu">فروخت میں ترمیم</span></> : <>New Sale — <span className="urdu">نئی فروخت</span></>} large>
         <form onSubmit={handleSave}>
           <div style={{ marginBottom: 20 }}>
             <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8, display: 'block' }}>Buyer Type — خریدار کی قسم</label>
@@ -210,7 +245,7 @@ export default function Sales() {
           <div className="form-grid">
             <div className="form-group"><label>Date & Time — تاریخ و وقت</label><input type="datetime-local" required value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
             {partyType === 'Regular' ? (
-              <div className="form-group"><label>Buyer — خریدار</label><select required value={form.buyer_id} onChange={e => setForm({ ...form, buyer_id: e.target.value })}><option value="">Select Buyer</option>{buyers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+              <div className="form-group"><label>Buyer — خریدار</label><SearchableSelect required value={form.buyer_id} onChange={val => setForm({ ...form, buyer_id: val })} placeholder="Search Buyer — خریدار تلاش کریں" options={buyers.map(c => ({ value: String(c.id), label: c.name, labelUrdu: c.name_urdu || '', searchText: `${c.name} ${c.name_urdu || ''}` }))} /></div>
             ) : (
               <div className="form-group"><label>Walk-in Name — فوری خریدار</label><input value={walkInName} onChange={e => setWalkInName(e.target.value)} placeholder="Walk-in Buyer" style={{ borderColor: 'var(--accent2)', background: 'var(--accent2-glow)' }} /></div>
             )}
@@ -358,7 +393,7 @@ export default function Sales() {
           <div className="totals-bar"><span>Total: <strong>{formatPKR(total)}</strong></span><span>Net Amount: <strong className="amount positive" style={{ fontSize: '1.1rem' }}>{formatPKR(net)}</strong></span></div>
           <div className="modal-footer">
             <button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={!!stockError}>Save Sale</button>
+            <button type="submit" className="btn btn-primary" disabled={!!stockError}>{editingId ? 'Update Sale' : 'Save Sale'}</button>
           </div>
         </form>
       </Modal>
