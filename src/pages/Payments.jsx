@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MdAdd, MdDelete } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO } from '../utils/formatters';
 import { confirmAction } from '../utils/confirmDialog';
-import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
+import { exportToPDF, exportToXLSX, exportToCSV, fileTimestamp } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
 import { useToast } from '../components/Toast';
@@ -42,10 +42,10 @@ export default function Payments() {
     const totalPaid = payments.filter(p => p.type === 'Paid').reduce((s, p) => s + (p.amount || 0), 0);
     const summary = [{ label: 'Total Received / کل وصولی', value: formatPKR(totalReceived) }, { label: 'Total Paid / کل ادائیگی', value: formatPKR(totalPaid) }, { label: 'Entries', value: String(payments.length) }];
     const exportData = { title: 'Payments Report — ادائیگی رپورٹ', columns, rows, summary, dateRange: '' };
-    let saved = false;
-    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Payments_Report_${todayISO()}.pdf` });
-    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Payments_Report_${todayISO()}.xlsx` });
-    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Payments_Report_${todayISO()}.csv` });
+    let saved = false; const ts = fileTimestamp();
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Payments_Report_${ts}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Payments_Report_${ts}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Payments_Report_${ts}.csv` });
     if (saved) toast.success('File exported successfully!');
   };
 

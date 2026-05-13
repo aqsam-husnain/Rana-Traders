@@ -30,6 +30,15 @@ function uniqueId() {
 }
 
 /**
+ * Generate a timestamp string for unique file names: YYYYMMDD_HHmmss
+ */
+export function fileTimestamp() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+}
+
+/**
  * Safely convert an ArrayBuffer to a base64 string
  * (avoids "Maximum call stack size exceeded" with large buffers)
  */
@@ -61,7 +70,7 @@ function getCellText(data) {
  * Export report data to PDF with professional formatting
  * Supports bilingual LTR (English) + RTL (Urdu) with embedded Noto Nastaliq Urdu font
  */
-export async function exportToPDF({ title, titleUrdu, columns, rows, summary, dateRange, fileName }) {
+export async function exportToPDF({ title, titleUrdu, columns, rows, summary, dateRange, fileName, highlightRows }) {
   const doc = new jsPDF({ orientation: rows[0]?.length > 6 ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
   registerUrduFont(doc);
 
@@ -196,6 +205,13 @@ export async function exportToPDF({ title, titleUrdu, columns, rows, summary, da
             data.cell.styles.fontSize = 9;
           }
         } else if (data.section === 'body') {
+          // Highlight category/group header rows (bold + accent color + tinted bg)
+          if (highlightRows && highlightRows.has(data.row.index)) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.textColor = [180, 140, 20];
+            data.cell.styles.fillColor = [255, 248, 230];
+            data.cell.styles.fontSize = 9;
+          }
           // For body cells: check if cell content contains Urdu
           if (hasUrdu(cellText)) {
             data.cell.styles.font = 'Amiri';
@@ -223,6 +239,236 @@ export async function exportToPDF({ title, titleUrdu, columns, rows, summary, da
   const pdfOutput = doc.output('arraybuffer');
   const base64 = arrayBufferToBase64(pdfOutput);
   const baseName = fileName ? fileName.replace(/\.pdf$/i, '') : 'report';
+  const result = await window.api.saveFileDialog(
+    `${baseName}.pdf`,
+    [{ name: 'PDF Files', extensions: ['pdf'] }],
+    base64
+  );
+  return result?.success || false;
+}
+
+/**
+ * Export DayBook as a split T-Account PDF with Inflow (left) and Outflow (right)
+ */
+export async function exportDayBookPDF({ title, inflowRows, outflowRows, inflowColumns, outflowColumns, inflowTotals, outflowTotals, summary, dateRange, fileName }) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  registerUrduFont(doc);
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const halfWidth = (pageWidth - 28 - 6) / 2; // 14px margin each side, 6px gap
+
+  // ── Header (same as standard) ──
+  doc.setFillColor(6, 6, 8);
+  doc.rect(0, 0, pageWidth, 32, 'F');
+
+  try {
+    const logoDataUrl = await getLogoBase64(160);
+    if (logoDataUrl) doc.addImage(logoDataUrl, 'PNG', 4, 2, 28, 28);
+  } catch (e) { }
+
+  const textStartX = 34;
+  const titleParts = title.split('—');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(255, 255, 255);
+  doc.text(titleParts[0].trim(), textStartX, 13);
+
+  if (titleParts[1] && hasUrdu(titleParts[1])) {
+    doc.setFont('Amiri', 'normal');
+    doc.setFontSize(14);
+    doc.setTextColor(180, 200, 220);
+    doc.text(titleParts[1].trim(), pageWidth - 14, 13, { align: 'right' });
+  }
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(148, 163, 184);
+  doc.text('Rana Traders — Commission Shop', textStartX, 22);
+  doc.setFont('Amiri', 'normal');
+  doc.setFontSize(10);
+  doc.text('رانا ٹریڈرز', pageWidth - 14, 22, { align: 'right' });
+
+  if (dateRange) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(200, 200, 200);
+    doc.text(dateRange, pageWidth - 14, 28, { align: 'right' });
+  }
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Generated: ${new Date().toLocaleString('en-PK')}`, textStartX, 28);
+
+  let yPos = 38;
+
+  // ── Summary cards ──
+  if (summary && summary.length > 0) {
+    const cardWidth = (pageWidth - 28 - (summary.length - 1) * 6) / summary.length;
+    summary.forEach((item, i) => {
+      const x = 14 + i * (cardWidth + 6);
+      doc.setFillColor(20, 20, 24);
+      doc.roundedRect(x, yPos, cardWidth, 18, 2, 2, 'F');
+      if (hasUrdu(item.label)) { doc.setFont('Amiri', 'normal'); } else { doc.setFont('helvetica', 'normal'); }
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text(item.label, x + 4, yPos + 6);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(241, 245, 249);
+      doc.text(item.value, x + 4, yPos + 14);
+    });
+    yPos += 26;
+  }
+
+  // ── Section Headers ──
+  const leftX = 14;
+  const rightX = 14 + halfWidth + 6;
+
+  // Left header — CREDIT / INFLOW (green)
+  doc.setFillColor(20, 60, 40);
+  doc.roundedRect(leftX, yPos, halfWidth, 10, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(52, 211, 153);
+  doc.text('CREDIT / INFLOW — Sale & Payment In', leftX + 4, yPos + 7);
+  doc.setFont('Amiri', 'normal');
+  doc.setFontSize(8);
+  doc.text('فروخت اور وصولی', leftX + halfWidth - 4, yPos + 7, { align: 'right' });
+
+  // Right header — DEBIT / OUTFLOW (red)
+  doc.setFillColor(60, 20, 20);
+  doc.roundedRect(rightX, yPos, halfWidth, 10, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(248, 113, 113);
+  doc.text('DEBIT / OUTFLOW — Purchase & Payment Out', rightX + 4, yPos + 7);
+  doc.setFont('Amiri', 'normal');
+  doc.setFontSize(8);
+  doc.text('خریداری اور ادائیگی', rightX + halfWidth - 4, yPos + 7, { align: 'right' });
+
+  yPos += 14;
+
+  // ── Left Table (Inflow) ──
+  const tableStyles = {
+    fontSize: 7.5,
+    cellPadding: 2.5,
+    lineColor: [30, 41, 59],
+    lineWidth: 0.1,
+    textColor: [71, 85, 105],
+    font: 'helvetica',
+    overflow: 'linebreak',
+  };
+
+  const leftRows = inflowRows.length > 0 ? inflowRows : [['', '', '', '', 'No inflow entries']];
+  autoTable(doc, {
+    startY: yPos,
+    head: [inflowColumns],
+    body: leftRows,
+    styles: { ...tableStyles },
+    headStyles: { fillColor: [15, 40, 30], textColor: [52, 211, 153], fontSize: 7, fontStyle: 'bold', cellPadding: 3 },
+    alternateRowStyles: { fillColor: [248, 253, 250] },
+    margin: { left: leftX, right: pageWidth - leftX - halfWidth },
+    tableWidth: halfWidth,
+    didParseCell: (data) => {
+      const cellText = getCellText(data);
+      if (hasUrdu(cellText)) { data.cell.styles.font = 'Amiri'; data.cell.styles.fontSize = 8.5; }
+      // Right-align amount column (last column)
+      if (data.column.index === inflowColumns.length - 1 && data.section === 'body') {
+        data.cell.styles.halign = 'right';
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.textColor = [16, 150, 100];
+      }
+    },
+  });
+
+  const leftFinalY = doc.lastAutoTable.finalY;
+
+  // ── Right Table (Outflow) ──
+  const rightRows = outflowRows.length > 0 ? outflowRows : [['', '', '', '', 'No outflow entries']];
+  autoTable(doc, {
+    startY: yPos,
+    head: [outflowColumns],
+    body: rightRows,
+    styles: { ...tableStyles },
+    headStyles: { fillColor: [50, 15, 15], textColor: [248, 113, 113], fontSize: 7, fontStyle: 'bold', cellPadding: 3 },
+    alternateRowStyles: { fillColor: [253, 248, 248] },
+    margin: { left: rightX, right: 14 },
+    tableWidth: halfWidth,
+    didParseCell: (data) => {
+      const cellText = getCellText(data);
+      if (hasUrdu(cellText)) { data.cell.styles.font = 'Amiri'; data.cell.styles.fontSize = 8.5; }
+      if (data.column.index === outflowColumns.length - 1 && data.section === 'body') {
+        data.cell.styles.halign = 'right';
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.textColor = [200, 50, 50];
+      }
+    },
+  });
+
+  const rightFinalY = doc.lastAutoTable.finalY;
+  const maxY = Math.max(leftFinalY, rightFinalY);
+
+  // ── Vertical Divider Line (gold) ──
+  const dividerX = leftX + halfWidth + 3;
+  doc.setDrawColor(212, 160, 23);
+  doc.setLineWidth(0.6);
+  doc.line(dividerX, yPos - 14, dividerX, maxY + 2);
+
+  // ── Footer Totals ──
+  const footerY = maxY + 4;
+
+  // Left footer — Total Credit
+  doc.setFillColor(20, 60, 40);
+  doc.roundedRect(leftX, footerY, halfWidth, 12, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(52, 211, 153);
+  doc.text('Total Credit:', leftX + 4, footerY + 5);
+  doc.setFont('Amiri', 'normal');
+  doc.setFontSize(7.5);
+  doc.text('کل جمع', leftX + 4, footerY + 10);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text(inflowTotals.total, leftX + halfWidth - 4, footerY + 8, { align: 'right' });
+
+  // Right footer — Total Debit
+  doc.setFillColor(60, 20, 20);
+  doc.roundedRect(rightX, footerY, halfWidth, 12, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(248, 113, 113);
+  doc.text('Total Debit:', rightX + 4, footerY + 5);
+  doc.setFont('Amiri', 'normal');
+  doc.setFontSize(7.5);
+  doc.text('کل بنام', rightX + 4, footerY + 10);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text(outflowTotals.total, rightX + halfWidth - 4, footerY + 8, { align: 'right' });
+
+  // Sub-totals row
+  const subY = footerY + 16;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Sale: ${inflowTotals.sale}  |  Payment In: ${inflowTotals.paymentIn}`, leftX + 4, subY);
+  doc.text(`Purchase: ${outflowTotals.purchase}  |  Payment Out: ${outflowTotals.paymentOut}`, rightX + 4, subY);
+
+  // Page footer
+  doc.setFillColor(248, 250, 252);
+  doc.rect(0, pageHeight - 10, pageWidth, 10, 'F');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(148, 163, 184);
+  doc.text('Rana Traders', 14, pageHeight - 4);
+  doc.setFont('Amiri', 'normal');
+  doc.text('رانا ٹریڈرز', 40, pageHeight - 4);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Page ${doc.internal.getNumberOfPages()}`, pageWidth - 14, pageHeight - 4, { align: 'right' });
+
+  const pdfOutput = doc.output('arraybuffer');
+  const base64 = arrayBufferToBase64(pdfOutput);
+  const baseName = fileName ? fileName.replace(/\.pdf$/i, '') : 'DayBook';
   const result = await window.api.saveFileDialog(
     `${baseName}.pdf`,
     [{ name: 'PDF Files', extensions: ['pdf'] }],

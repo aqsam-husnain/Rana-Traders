@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MdAdd, MdDelete, MdEdit, MdPerson, MdPersonOutline, MdWarning, MdClose } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
 import { confirmAction } from '../utils/confirmDialog';
-import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
+import { exportToPDF, exportToXLSX, exportToCSV, fileTimestamp } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
 import SearchableSelect from '../components/SearchableSelect';
@@ -199,10 +199,10 @@ export default function Sales() {
       { label: 'Entries', value: String(sales.length) },
     ];
     const exportData = { title: 'Sales Report — فروخت رپورٹ', columns, rows, summary, dateRange: '' };
-    let saved = false;
-    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Sales_Report_${todayISO()}.pdf` });
-    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Sales_Report_${todayISO()}.xlsx` });
-    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Sales_Report_${todayISO()}.csv` });
+    let saved = false; const ts = fileTimestamp();
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Sales_Report_${ts}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Sales_Report_${ts}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Sales_Report_${ts}.csv` });
     if (saved) toast.success('File exported successfully!');
   };
 

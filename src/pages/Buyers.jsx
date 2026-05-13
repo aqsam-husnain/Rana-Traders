@@ -3,7 +3,7 @@ import { MdAdd, MdEdit, MdDelete, MdSearch } from 'react-icons/md';
 import { useNavigate } from 'react-router-dom';
 import { formatPKR, todayISO } from '../utils/formatters';
 import { confirmAction } from '../utils/confirmDialog';
-import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
+import { exportToPDF, exportToXLSX, exportToCSV, fileTimestamp } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
 import { useToast } from '../components/Toast';
@@ -32,10 +32,10 @@ export default function Buyers() {
     const rows = filtered.map((c, i) => [i + 1, c.name + (c.name_urdu ? '\n' + c.name_urdu : ''), c.phone || '—', c.cnic || '—', c.address || '—', formatPKR(c.opening_balance || 0), c.status]);
     const summary = [{ label: 'Total Buyers / کل خریدار', value: String(filtered.length) }, { label: 'Total Opening Balance / ابتدائی بیلنس', value: formatPKR(filtered.reduce((s, c) => s + (c.opening_balance || 0), 0)) }];
     const exportData = { title: 'Buyers List — خریداروں کی فہرست', columns, rows, summary, dateRange: '' };
-    let saved = false;
-    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Buyers_${todayISO()}.pdf` });
-    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Buyers_${todayISO()}.xlsx` });
-    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Buyers_${todayISO()}.csv` });
+    let saved = false; const ts = fileTimestamp();
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Buyers_${ts}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Buyers_${ts}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Buyers_${ts}.csv` });
     if (saved) toast.success('File exported successfully!');
   };
 

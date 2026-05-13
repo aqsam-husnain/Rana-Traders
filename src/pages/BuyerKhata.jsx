@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { MdArrowBack, MdAdd, MdDelete, MdEdit, MdPayment, MdPointOfSale, MdPerson, MdPhone, MdBadge, MdLocationOn, MdClose } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
 import { confirmAction } from '../utils/confirmDialog';
-import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
+import { exportToPDF, exportToXLSX, exportToCSV, fileTimestamp } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
 import { useToast } from '../components/Toast';
@@ -244,10 +244,10 @@ export default function BuyerKhata() {
     const summary = [{ label: 'Buyer', value: buyer?.name || '' }, { label: 'Total Debit', value: formatPKR(totalDebit) }, { label: 'Total Credit', value: formatPKR(totalCredit) }, { label: 'Final Balance', value: formatPKR(bal) }];
     const exportData = { title: `Buyer Khata — ${buyer?.name} — کھاتا`, columns, rows, summary, dateRange: '' };
     const safeName = (buyer?.name || 'Buyer').replace(/\s+/g, '_');
-    let saved = false;
-    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.pdf` });
-    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.xlsx` });
-    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Khata_${safeName}_${todayISO()}.csv` });
+    let saved = false; const ts = fileTimestamp();
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Khata_${safeName}_${ts}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Khata_${safeName}_${ts}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Khata_${safeName}_${ts}.csv` });
     if (saved) toast.success('File exported successfully!');
   };
 

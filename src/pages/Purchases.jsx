@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MdAdd, MdDelete, MdEdit, MdPerson, MdPersonOutline, MdClose } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
 import { confirmAction } from '../utils/confirmDialog';
-import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
+import { exportToPDF, exportToXLSX, exportToCSV, fileTimestamp } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
 import SearchableSelect from '../components/SearchableSelect';
@@ -144,10 +144,10 @@ export default function Purchases() {
     const rows = purchases.map((p, i) => [i + 1, formatDate(p.date), (p.supplier_name || '—') + (p.supplier_name_urdu ? '\n' + p.supplier_name_urdu : ''), p.product_name + (p.product_name_urdu ? '\n' + p.product_name_urdu : ''), formatNumber(p.quantity), p.display_unit || p.product_unit || '', formatPKR(p.rate), formatPKR(p.total), formatPKR(p.commission), formatPKR(p.net_amount), p.payment_status || 'To Pay', formatPKR(p.amount_paid || 0)]);
     const summary = [{ label: 'Total Purchases / کل خریداری', value: formatPKR(purchases.reduce((s, r) => s + (r.net_amount || 0), 0)) }, { label: 'Total Commission / کل آڑت', value: formatPKR(purchases.reduce((s, r) => s + (r.commission || 0), 0)) }, { label: 'Total Paid to Suppliers', value: formatPKR(purchases.reduce((s, r) => s + (r.amount_paid || 0), 0)) }, { label: 'Entries', value: String(purchases.length) }];
     const exportData = { title: 'Purchases Report — خریداری رپورٹ', columns, rows, summary, dateRange: '' };
-    let saved = false;
-    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Purchases_Report_${todayISO()}.pdf` });
-    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Purchases_Report_${todayISO()}.xlsx` });
-    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Purchases_Report_${todayISO()}.csv` });
+    let saved = false; const ts = fileTimestamp();
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Purchases_Report_${ts}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Purchases_Report_${ts}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Purchases_Report_${ts}.csv` });
     if (saved) toast.success('File exported successfully!');
   };
 

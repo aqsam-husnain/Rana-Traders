@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { formatNumber, formatPKR, todayISO } from '../utils/formatters';
-import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
+import { exportToPDF, exportToXLSX, exportToCSV, fileTimestamp } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import { useToast } from '../components/Toast';
 import { MdSearch, MdAdd, MdClose } from 'react-icons/md';
@@ -92,10 +92,10 @@ export default function StockOverview() {
     const summary = [{ label: 'Total Products / کل اجناس', value: String(filtered.length) }, { label: 'Total Available Stock / دستیاب اسٹاک', value: formatNumber(filtered.reduce((s, r) => s + (r.available_stock || 0), 0)) + ' KG' }];
     const titleSuffix = search ? ` — "${search}"` : '';
     const exportData = { title: `Stock Overview — اسٹاک رپورٹ${titleSuffix}`, columns, rows, summary, dateRange: '' };
-    let saved = false;
-    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Stock_Overview_${todayISO()}.pdf` });
-    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Stock_Overview_${todayISO()}.xlsx` });
-    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Stock_Overview_${todayISO()}.csv` });
+    let saved = false; const ts = fileTimestamp();
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Stock_Overview_${ts}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Stock_Overview_${ts}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Stock_Overview_${ts}.csv` });
     if (saved) toast.success('File exported successfully!');
   };
 

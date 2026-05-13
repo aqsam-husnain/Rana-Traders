@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { MdChevronLeft, MdChevronRight, MdCalendarToday, MdToday } from 'react-icons/md';
+import { MdChevronLeft, MdChevronRight, MdCalendarToday, MdToday, MdTrendingDown, MdTrendingUp } from 'react-icons/md';
 import { formatPKR, formatDate, todayDateOnly } from '../utils/formatters';
-import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
+import { exportDayBookPDF, exportToXLSX, exportToCSV, fileTimestamp } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import { useToast } from '../components/Toast';
 
@@ -15,6 +15,10 @@ export default function DayBook() {
 
   // Sort entries by time for proper chronological display
   const sortedEntries = [...entries].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  // Split entries into inflow (Credit) and outflow (Debit)
+  const inflowEntries = sortedEntries.filter(e => e.type === 'Sale' || e.type === 'Payment In');
+  const outflowEntries = sortedEntries.filter(e => e.type === 'Purchase' || e.type === 'Payment Out');
 
   // Category totals
   const totalSale = sortedEntries.filter(e => e.type === 'Sale').reduce((s, e) => s + e.amount, 0);
@@ -44,48 +48,69 @@ export default function DayBook() {
 
   const handleExport = async (format) => {
     if (sortedEntries.length === 0) return;
-    const columns = ['#', 'Time', 'Party', 'Product', 'Sale (فروخت)', 'Purchase (خریداری)', 'Payment In (وصولی)', 'Payment Out (ادائیگی)'];
-    const rows = sortedEntries.map((e, i) => [
-      i + 1,
-      e.date && e.date.includes('T') ? new Date(e.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—',
-      e.party_name || '—',
-      e.product_name || '—',
-      e.type === 'Sale' ? formatPKR(e.amount) : '',
-      e.type === 'Purchase' ? formatPKR(e.amount) : '',
-      e.type === 'Payment In' ? formatPKR(e.amount) : '',
-      e.type === 'Payment Out' ? formatPKR(e.amount) : '',
-    ]);
-    // Add totals row
-    rows.push(['', '', '', 'Total — کل', formatPKR(totalSale), formatPKR(totalPurchase), formatPKR(totalPaymentIn), formatPKR(totalPaymentOut)]);
+    const ts = fileTimestamp();
+    const fmtTime = (e) => e.date && e.date.includes('T') ? new Date(e.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—';
 
-    const summary = [
-      { label: 'Total Inflow — آمدن', value: formatPKR(totalIn) },
-      { label: 'Total Outflow — اخراجات', value: formatPKR(totalOut) },
-      { label: 'Net — خالص', value: formatPKR(totalIn - totalOut) }
-    ];
-    const exportData = { title: `Day Book — روزنامچہ`, columns, rows, summary, dateRange: formatDate(date) };
     let saved = false;
-    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `DayBook_${date}.pdf` });
-    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `DayBook_${date}.xlsx` });
-    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `DayBook_${date}.csv` });
+    if (format === 'pdf') {
+      // Split T-Account PDF
+      const inflowCols = ['#', 'Time', 'Type', 'Party', 'Amount'];
+      const outflowCols = ['#', 'Time', 'Type', 'Party', 'Amount'];
+      const inflowRows = inflowEntries.map((e, i) => [i + 1, fmtTime(e), e.type, (e.party_name || '—') + (e.party_name_urdu ? '\n' + e.party_name_urdu : ''), formatPKR(e.amount)]);
+      const outflowRows = outflowEntries.map((e, i) => [i + 1, fmtTime(e), e.type, (e.party_name || '—') + (e.party_name_urdu ? '\n' + e.party_name_urdu : ''), formatPKR(e.amount)]);
+      saved = await exportDayBookPDF({
+        title: `Day Book — روزنامچہ`,
+        inflowColumns: inflowCols,
+        outflowColumns: outflowCols,
+        inflowRows,
+        outflowRows,
+        inflowTotals: { total: formatPKR(totalIn), sale: formatPKR(totalSale), paymentIn: formatPKR(totalPaymentIn) },
+        outflowTotals: { total: formatPKR(totalOut), purchase: formatPKR(totalPurchase), paymentOut: formatPKR(totalPaymentOut) },
+        summary: [
+          { label: 'Total Inflow — آمدن', value: formatPKR(totalIn) },
+          { label: 'Total Outflow — اخراجات', value: formatPKR(totalOut) },
+          { label: 'Net — خالص', value: formatPKR(totalIn - totalOut) }
+        ],
+        dateRange: formatDate(date),
+        fileName: `DayBook_${date}_${ts}.pdf`,
+      });
+    } else {
+      // XLSX / CSV — keep tabular format
+      const columns = ['#', 'Time', 'Party', 'Product', 'Sale (فروخت)', 'Purchase (خریداری)', 'Payment In (وصولی)', 'Payment Out (ادائیگی)'];
+      const rows = sortedEntries.map((e, i) => [
+        i + 1, fmtTime(e), (e.party_name || '—') + (e.party_name_urdu ? '\n' + e.party_name_urdu : ''), e.product_name || '—',
+        e.type === 'Sale' ? formatPKR(e.amount) : '',
+        e.type === 'Purchase' ? formatPKR(e.amount) : '',
+        e.type === 'Payment In' ? formatPKR(e.amount) : '',
+        e.type === 'Payment Out' ? formatPKR(e.amount) : '',
+      ]);
+      rows.push(['', '', '', 'Total — کل', formatPKR(totalSale), formatPKR(totalPurchase), formatPKR(totalPaymentIn), formatPKR(totalPaymentOut)]);
+      const summary = [
+        { label: 'Total Inflow — آمدن', value: formatPKR(totalIn) },
+        { label: 'Total Outflow — اخراجات', value: formatPKR(totalOut) },
+        { label: 'Net — خالص', value: formatPKR(totalIn - totalOut) }
+      ];
+      const exportData = { title: `Day Book — روزنامچہ`, columns, rows, summary, dateRange: formatDate(date) };
+      if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `DayBook_${date}_${ts}.xlsx` });
+      else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `DayBook_${date}_${ts}.csv` });
+    }
     if (saved) toast.success('File exported successfully!');
   };
 
-  // Badge styling helper
-  const getBadgeClass = (type) => {
-    if (type === 'Sale') return 'badge-active';
-    if (type === 'Purchase') return 'badge-inactive';
-    if (type === 'Payment In') return 'badge-active';
-    if (type === 'Payment Out') return 'badge-inactive';
-    return '';
+  // Time formatter helper
+  const formatTime = (dateStr) => {
+    if (dateStr && dateStr.includes('T')) {
+      return new Date(dateStr).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+    return '—';
   };
 
-  // Column color helper
-  const getAmountStyle = (type) => {
-    if (type === 'Sale') return { color: 'var(--green)', fontWeight: 700 };
-    if (type === 'Purchase') return { color: 'var(--red)', fontWeight: 700 };
-    if (type === 'Payment In') return { color: '#4fc3f7', fontWeight: 700 };
-    if (type === 'Payment Out') return { color: '#ff9800', fontWeight: 700 };
+  // Type badge color helper
+  const getTypeBadge = (type) => {
+    if (type === 'Sale') return { label: 'Sale', urdu: 'فروخت', color: 'var(--green)', bg: 'rgba(52,211,153,0.1)', border: 'rgba(52,211,153,0.2)' };
+    if (type === 'Payment In') return { label: 'Payment In', urdu: 'وصولی', color: '#4fc3f7', bg: 'rgba(79,195,247,0.1)', border: 'rgba(79,195,247,0.2)' };
+    if (type === 'Purchase') return { label: 'Purchase', urdu: 'خریداری', color: 'var(--red)', bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.2)' };
+    if (type === 'Payment Out') return { label: 'Payment Out', urdu: 'ادائیگی', color: '#ff9800', bg: 'rgba(255,152,0,0.1)', border: 'rgba(255,152,0,0.2)' };
     return {};
   };
 
@@ -156,89 +181,312 @@ export default function DayBook() {
         )}
       </div>
 
-      {/* Summary Stats */}
+      {/* Summary Stats — 3 cards */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
         <div className="stat-card"><div className="stat-icon green">↓</div><div className="stat-info"><h3>Total Inflow — آمدن</h3><div className="stat-value" style={{ color: 'var(--green)' }}>{formatPKR(totalIn)}</div></div></div>
         <div className="stat-card"><div className="stat-icon red">↑</div><div className="stat-info"><h3>Total Outflow — اخراجات</h3><div className="stat-value" style={{ color: 'var(--red)' }}>{formatPKR(totalOut)}</div></div></div>
         <div className="stat-card"><div className="stat-icon indigo">≈</div><div className="stat-info"><h3>Net — خالص</h3><div className="stat-value">{formatPKR(totalIn - totalOut)}</div></div></div>
       </div>
 
-      {/* Category-wise mini stats */}
+      {/* ═══════════════════════════════════════════════════════════
+          T-ACCOUNT SPLIT LAYOUT — Inflow (Left) | Outflow (Right)
+          ═══════════════════════════════════════════════════════════ */}
       <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20
+        display: 'grid',
+        gridTemplateColumns: '1fr auto 1fr',
+        gap: 0,
+        marginBottom: 24,
+        minHeight: 300,
       }}>
-        <div style={{
-          padding: '10px 14px', borderRadius: 12, background: 'rgba(76,175,80,0.08)',
-          border: '1px solid rgba(76,175,80,0.15)', textAlign: 'center'
-        }}>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Sale — <span className="urdu">فروخت</span></div>
-          <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--green)' }}>{formatPKR(totalSale)}</div>
-        </div>
-        <div style={{
-          padding: '10px 14px', borderRadius: 12, background: 'rgba(239,68,68,0.08)',
-          border: '1px solid rgba(239,68,68,0.15)', textAlign: 'center'
-        }}>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Purchase — <span className="urdu">خریداری</span></div>
-          <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--red)' }}>{formatPKR(totalPurchase)}</div>
-        </div>
-        <div style={{
-          padding: '10px 14px', borderRadius: 12, background: 'rgba(79,195,247,0.08)',
-          border: '1px solid rgba(79,195,247,0.15)', textAlign: 'center'
-        }}>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Payment In — <span className="urdu">وصولی</span></div>
-          <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#4fc3f7' }}>{formatPKR(totalPaymentIn)}</div>
-        </div>
-        <div style={{
-          padding: '10px 14px', borderRadius: 12, background: 'rgba(255,152,0,0.08)',
-          border: '1px solid rgba(255,152,0,0.15)', textAlign: 'center'
-        }}>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Payment Out — <span className="urdu">ادائیگی</span></div>
-          <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#ff9800' }}>{formatPKR(totalPaymentOut)}</div>
-        </div>
-      </div>
 
-      <div className="data-table-wrapper">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Time</th>
-              <th>Party</th>
-              <th>Product</th>
-              <th style={{ textAlign: 'right', color: 'var(--green)' }}>Sale<br /><span className="urdu" style={{ fontSize: '0.75rem', fontWeight: 400 }}>فروخت</span></th>
-              <th style={{ textAlign: 'right', color: 'var(--red)' }}>Purchase<br /><span className="urdu" style={{ fontSize: '0.75rem', fontWeight: 400 }}>خریداری</span></th>
-              <th style={{ textAlign: 'right', color: '#4fc3f7' }}>Payment In<br /><span className="urdu" style={{ fontSize: '0.75rem', fontWeight: 400 }}>وصولی</span></th>
-              <th style={{ textAlign: 'right', color: '#ff9800' }}>Payment Out<br /><span className="urdu" style={{ fontSize: '0.75rem', fontWeight: 400 }}>ادائیگی</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedEntries.map((e, i) => (
-              <tr key={i}>
-                <td>{i + 1}</td>
-                <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.date && e.date.includes('T') ? new Date(e.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'}</td>
-                <td>{e.party_name || '—'}{e.party_name_urdu ? <><br /><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.party_name_urdu}</span></> : ''}</td>
-                <td>{e.product_name || '—'}{e.product_name_urdu ? <><br /><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.product_name_urdu}</span></> : ''}</td>
-                <td className="amount" style={e.type === 'Sale' ? getAmountStyle('Sale') : { textAlign: 'right' }}>{e.type === 'Sale' ? formatPKR(e.amount) : ''}</td>
-                <td className="amount" style={e.type === 'Purchase' ? getAmountStyle('Purchase') : { textAlign: 'right' }}>{e.type === 'Purchase' ? formatPKR(e.amount) : ''}</td>
-                <td className="amount" style={e.type === 'Payment In' ? getAmountStyle('Payment In') : { textAlign: 'right' }}>{e.type === 'Payment In' ? formatPKR(e.amount) : ''}</td>
-                <td className="amount" style={e.type === 'Payment Out' ? getAmountStyle('Payment Out') : { textAlign: 'right' }}>{e.type === 'Payment Out' ? formatPKR(e.amount) : ''}</td>
-              </tr>
-            ))}
-            {/* Totals row */}
-            {sortedEntries.length > 0 && (
-              <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700, background: 'var(--glass)' }}>
-                <td colSpan={4} style={{ textAlign: 'right', paddingRight: 12, fontSize: '0.85rem' }}>
-                  Total — <span className="urdu">کل</span>
-                </td>
-                <td className="amount" style={{ ...getAmountStyle('Sale'), fontSize: '0.95rem' }}>{formatPKR(totalSale)}</td>
-                <td className="amount" style={{ ...getAmountStyle('Purchase'), fontSize: '0.95rem' }}>{formatPKR(totalPurchase)}</td>
-                <td className="amount" style={{ ...getAmountStyle('Payment In'), fontSize: '0.95rem' }}>{formatPKR(totalPaymentIn)}</td>
-                <td className="amount" style={{ ...getAmountStyle('Payment Out'), fontSize: '0.95rem' }}>{formatPKR(totalPaymentOut)}</td>
-              </tr>
+        {/* ─── LEFT COLUMN: INFLOW / CREDIT ─── */}
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {/* Column Header */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px',
+            background: 'rgba(52,211,153,0.06)',
+            borderRadius: '14px 0 0 0',
+            border: '1px solid rgba(52,211,153,0.15)',
+            borderRight: 'none',
+          }}>
+            <div style={{
+              width: 38, height: 38, borderRadius: 10,
+              background: 'rgba(52,211,153,0.12)', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+            }}>
+              <MdTrendingDown style={{ fontSize: '1.3rem', color: 'var(--green)' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', lineHeight: 1 }}>
+                Credit / Inflow
+              </div>
+              <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--green)', lineHeight: 1.4 }}>
+                Sale & Payment In — <span className="urdu" style={{ fontSize: '0.85rem' }}>فروخت اور وصولی</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Inflow Sub-stats */}
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0,
+            border: '1px solid rgba(52,211,153,0.15)', borderTop: 'none', borderRight: 'none',
+          }}>
+            <div style={{
+              padding: '10px 14px', textAlign: 'center',
+              background: 'rgba(52,211,153,0.04)',
+              borderRight: '1px solid rgba(52,211,153,0.1)',
+            }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Sale — <span className="urdu">فروخت</span>
+              </div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--green)' }}>{formatPKR(totalSale)}</div>
+            </div>
+            <div style={{
+              padding: '10px 14px', textAlign: 'center',
+              background: 'rgba(79,195,247,0.04)',
+            }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Payment In — <span className="urdu">وصولی</span>
+              </div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#4fc3f7' }}>{formatPKR(totalPaymentIn)}</div>
+            </div>
+          </div>
+
+          {/* Inflow Table */}
+          <div style={{
+            flex: 1,
+            background: 'var(--bg-card)',
+            border: '1px solid rgba(52,211,153,0.15)',
+            borderTop: 'none',
+            borderRight: 'none',
+            borderRadius: '0 0 0 14px',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              <table className="data-table" style={{ marginBottom: 0 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 36 }}>#</th>
+                    <th>Time</th>
+                    <th>Type</th>
+                    <th>Party</th>
+                    <th>Product</th>
+                    <th style={{ textAlign: 'right' }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inflowEntries.length > 0 ? inflowEntries.map((e, i) => {
+                    const badge = getTypeBadge(e.type);
+                    return (
+                      <tr key={i}>
+                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{i + 1}</td>
+                        <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{formatTime(e.date)}</td>
+                        <td>
+                          <span style={{
+                            display: 'inline-block', padding: '2px 8px', borderRadius: 6,
+                            fontSize: '0.68rem', fontWeight: 600,
+                            color: badge.color, background: badge.bg,
+                            border: `1px solid ${badge.border}`,
+                          }}>
+                            {badge.label}
+                          </span>
+                        </td>
+                        <td>
+                          {e.party_name || '—'}
+                          {e.party_name_urdu ? <><br /><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.party_name_urdu}</span></> : ''}
+                        </td>
+                        <td>
+                          {e.product_name || '—'}
+                          {e.product_name_urdu ? <><br /><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.product_name_urdu}</span></> : ''}
+                        </td>
+                        <td className="amount" style={{ textAlign: 'right', color: badge.color, fontWeight: 700 }}>
+                          {formatPKR(e.amount)}
+                        </td>
+                      </tr>
+                    );
+                  }) : (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                        No inflow entries — <span className="urdu">کوئی آمدن نہیں</span>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {/* Inflow Footer Total */}
+            {inflowEntries.length > 0 && (
+              <div style={{
+                padding: '14px 18px',
+                background: 'rgba(52,211,153,0.06)',
+                borderTop: '2px solid rgba(52,211,153,0.2)',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              }}>
+                <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Total Credit — <span className="urdu" style={{ fontSize: '0.8rem' }}>کل جمع</span>
+                </span>
+                <span style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--green)' }}>
+                  {formatPKR(totalIn)}
+                </span>
+              </div>
             )}
-            {sortedEntries.length === 0 && <tr><td colSpan={8} className="text-center" style={{ padding: 40, color: 'var(--text-muted)' }}>No entries for this date — اس تاریخ کے لیے کوئی اندراج نہیں</td></tr>}
-          </tbody>
-        </table>
+          </div>
+        </div>
+
+        {/* ─── VERTICAL DIVIDER ─── */}
+        <div style={{
+          width: 3,
+          background: 'linear-gradient(to bottom, rgba(212,160,23,0.05), rgba(212,160,23,0.4), rgba(212,160,23,0.4), rgba(212,160,23,0.05))',
+          position: 'relative',
+        }}>
+          {/* Decorative diamond at center */}
+          <div style={{
+            position: 'absolute', top: '50%', left: '50%',
+            transform: 'translate(-50%, -50%) rotate(45deg)',
+            width: 12, height: 12,
+            background: 'var(--accent)',
+            borderRadius: 2,
+            boxShadow: '0 0 12px rgba(212,160,23,0.4)',
+          }} />
+        </div>
+
+        {/* ─── RIGHT COLUMN: OUTFLOW / DEBIT ─── */}
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {/* Column Header */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px',
+            background: 'rgba(248,113,113,0.06)',
+            borderRadius: '0 14px 0 0',
+            border: '1px solid rgba(248,113,113,0.15)',
+            borderLeft: 'none',
+          }}>
+            <div style={{
+              width: 38, height: 38, borderRadius: 10,
+              background: 'rgba(248,113,113,0.12)', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+            }}>
+              <MdTrendingUp style={{ fontSize: '1.3rem', color: 'var(--red)' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', lineHeight: 1 }}>
+                Debit / Outflow
+              </div>
+              <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--red)', lineHeight: 1.4 }}>
+                Purchase & Payment Out — <span className="urdu" style={{ fontSize: '0.85rem' }}>خریداری اور ادائیگی</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Outflow Sub-stats */}
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0,
+            border: '1px solid rgba(248,113,113,0.15)', borderTop: 'none', borderLeft: 'none',
+          }}>
+            <div style={{
+              padding: '10px 14px', textAlign: 'center',
+              background: 'rgba(248,113,113,0.04)',
+              borderRight: '1px solid rgba(248,113,113,0.1)',
+            }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Purchase — <span className="urdu">خریداری</span>
+              </div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--red)' }}>{formatPKR(totalPurchase)}</div>
+            </div>
+            <div style={{
+              padding: '10px 14px', textAlign: 'center',
+              background: 'rgba(255,152,0,0.04)',
+            }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Payment Out — <span className="urdu">ادائیگی</span>
+              </div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#ff9800' }}>{formatPKR(totalPaymentOut)}</div>
+            </div>
+          </div>
+
+          {/* Outflow Table */}
+          <div style={{
+            flex: 1,
+            background: 'var(--bg-card)',
+            border: '1px solid rgba(248,113,113,0.15)',
+            borderTop: 'none',
+            borderLeft: 'none',
+            borderRadius: '0 0 14px 0',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              <table className="data-table" style={{ marginBottom: 0 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 36 }}>#</th>
+                    <th>Time</th>
+                    <th>Type</th>
+                    <th>Party</th>
+                    <th>Product</th>
+                    <th style={{ textAlign: 'right' }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {outflowEntries.length > 0 ? outflowEntries.map((e, i) => {
+                    const badge = getTypeBadge(e.type);
+                    return (
+                      <tr key={i}>
+                        <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{i + 1}</td>
+                        <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{formatTime(e.date)}</td>
+                        <td>
+                          <span style={{
+                            display: 'inline-block', padding: '2px 8px', borderRadius: 6,
+                            fontSize: '0.68rem', fontWeight: 600,
+                            color: badge.color, background: badge.bg,
+                            border: `1px solid ${badge.border}`,
+                          }}>
+                            {badge.label}
+                          </span>
+                        </td>
+                        <td>
+                          {e.party_name || '—'}
+                          {e.party_name_urdu ? <><br /><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.party_name_urdu}</span></> : ''}
+                        </td>
+                        <td>
+                          {e.product_name || '—'}
+                          {e.product_name_urdu ? <><br /><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.product_name_urdu}</span></> : ''}
+                        </td>
+                        <td className="amount" style={{ textAlign: 'right', color: badge.color, fontWeight: 700 }}>
+                          {formatPKR(e.amount)}
+                        </td>
+                      </tr>
+                    );
+                  }) : (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                        No outflow entries — <span className="urdu">کوئی اخراجات نہیں</span>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {/* Outflow Footer Total */}
+            {outflowEntries.length > 0 && (
+              <div style={{
+                padding: '14px 18px',
+                background: 'rgba(248,113,113,0.06)',
+                borderTop: '2px solid rgba(248,113,113,0.2)',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              }}>
+                <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Total Debit — <span className="urdu" style={{ fontSize: '0.8rem' }}>کل بنام</span>
+                </span>
+                <span style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--red)' }}>
+                  {formatPKR(totalOut)}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

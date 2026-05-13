@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { formatPKR, formatDate, todayISO } from '../utils/formatters';
-import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
+import { exportToPDF, exportToXLSX, exportToCSV, fileTimestamp } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import { useToast } from '../components/Toast';
 
@@ -55,10 +55,10 @@ export default function Ledger() {
     const { columns, rows, summary, partyName } = buildExportData();
     const typeLabel = tab === 'buyer' ? 'Buyer' : 'Supplier';
     const exportData = { title: `${typeLabel} Ledger — ${partyName} — کھاتا`, columns, rows, summary, dateRange: '' };
-    let saved = false;
-    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Ledger_${partyName.replace(/\s+/g, '_')}_${todayISO()}.pdf` });
-    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Ledger_${partyName.replace(/\s+/g, '_')}_${todayISO()}.xlsx` });
-    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Ledger_${partyName.replace(/\s+/g, '_')}_${todayISO()}.csv` });
+    let saved = false; const ts = fileTimestamp();
+    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `Ledger_${partyName.replace(/\s+/g, '_')}_${ts}.pdf` });
+    else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `Ledger_${partyName.replace(/\s+/g, '_')}_${ts}.xlsx` });
+    else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `Ledger_${partyName.replace(/\s+/g, '_')}_${ts}.csv` });
     if (saved) toast.success('File exported successfully!');
   };
 
