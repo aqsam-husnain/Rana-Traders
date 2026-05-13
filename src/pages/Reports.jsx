@@ -122,11 +122,8 @@ const reportColumns = {
 
 export default function Reports() {
   const [selectedReport, setSelectedReport] = useState('');
-  const [dateFrom, setDateFrom] = useState(() => {
-    const d = new Date(); d.setMonth(d.getMonth() - 1);
-    return d.toISOString().split('T')[0];
-  });
-  const [dateTo, setDateTo] = useState(todayISO());
+  const [dateFrom, setDateFrom] = useState(todayISO().slice(0, 10));
+  const [dateTo, setDateTo] = useState(todayISO().slice(0, 10));
   const [data, setData] = useState(null);
   const toast = useToast();
 

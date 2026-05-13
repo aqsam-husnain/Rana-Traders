@@ -516,6 +516,7 @@ body {
   font-family: inherit;
   transition: all 0.2s ease;
   outline: none;
+  color-scheme: dark;
 }
 
 .form-group input:focus,

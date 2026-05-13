@@ -168,25 +168,32 @@ function registerIpcHandlers() {
       return queryAll("SELECT s.date,'Sale' as type,b.name as party_name,b.name_urdu as party_name_urdu,pr.name as product_name,pr.name_urdu as product_name_urdu,s.quantity,s.total,s.commission FROM sales s LEFT JOIN buyers b ON s.buyer_id=b.id LEFT JOIN products pr ON s.product_id=pr.id WHERE substr(s.date,1,10)>=? AND substr(s.date,1,10)<=? AND s.commission>0 UNION ALL SELECT pu.date,'Purchase' as type,sp.name as party_name,sp.name_urdu as party_name_urdu,pr.name as product_name,pr.name_urdu as product_name_urdu,pu.quantity,pu.total,pu.commission FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id LEFT JOIN products pr ON pu.product_id=pr.id WHERE substr(pu.date,1,10)>=? AND substr(pu.date,1,10)<=? AND pu.commission>0 ORDER BY date DESC", [f?.dateFrom, f?.dateTo, f?.dateFrom, f?.dateTo]);
     }
 
-    // ─── Daily Stock Valuation Report ───
+    // ─── Daily Stock Valuation Report (date-range filtered) ───
     if (type === 'stock-valuation') {
+      const df = f?.dateFrom || '1900-01-01', dt = f?.dateTo || '2999-12-31';
       const products = queryAll("SELECT p.id,p.name,p.name_urdu,p.unit,COALESCE(p.opening_stock,0) as opening_stock FROM products p WHERE p.status='Active' ORDER BY p.name");
       return products.map(prod => {
-        const purchasedQty = queryOne("SELECT COALESCE(SUM(quantity),0) as q FROM purchases WHERE product_id=?", [prod.id])?.q || 0;
-        const purchasedValue = queryOne("SELECT COALESCE(SUM(net_amount),0) as v FROM purchases WHERE product_id=?", [prod.id])?.v || 0;
-        const soldQty = queryOne("SELECT COALESCE(SUM(quantity),0) as q FROM sales WHERE product_id=?", [prod.id])?.q || 0;
-        const soldValue = queryOne("SELECT COALESCE(SUM(net_amount),0) as v FROM sales WHERE product_id=?", [prod.id])?.v || 0;
-        const closingQty = prod.opening_stock + purchasedQty - soldQty;
-        const totalQtyPool = prod.opening_stock + purchasedQty;
-        const avgRate = totalQtyPool > 0 ? purchasedValue / totalQtyPool : 0;
+        // Purchases before dateFrom = part of opening; within range = period purchases
+        const prePurchQty = queryOne("SELECT COALESCE(SUM(quantity),0) as q FROM purchases WHERE product_id=? AND substr(date,1,10)<?", [prod.id, df])?.q || 0;
+        const prePurchVal = queryOne("SELECT COALESCE(SUM(net_amount),0) as v FROM purchases WHERE product_id=? AND substr(date,1,10)<?", [prod.id, df])?.v || 0;
+        const preSoldQty = queryOne("SELECT COALESCE(SUM(quantity),0) as q FROM sales WHERE product_id=? AND substr(date,1,10)<?", [prod.id, df])?.q || 0;
+        const openingQty = prod.opening_stock + prePurchQty - preSoldQty;
+        const purchasedQty = queryOne("SELECT COALESCE(SUM(quantity),0) as q FROM purchases WHERE product_id=? AND substr(date,1,10)>=? AND substr(date,1,10)<=?", [prod.id, df, dt])?.q || 0;
+        const purchasedValue = queryOne("SELECT COALESCE(SUM(net_amount),0) as v FROM purchases WHERE product_id=? AND substr(date,1,10)>=? AND substr(date,1,10)<=?", [prod.id, df, dt])?.v || 0;
+        const soldQty = queryOne("SELECT COALESCE(SUM(quantity),0) as q FROM sales WHERE product_id=? AND substr(date,1,10)>=? AND substr(date,1,10)<=?", [prod.id, df, dt])?.q || 0;
+        const soldValue = queryOne("SELECT COALESCE(SUM(net_amount),0) as v FROM sales WHERE product_id=? AND substr(date,1,10)>=? AND substr(date,1,10)<=?", [prod.id, df, dt])?.v || 0;
+        const closingQty = openingQty + purchasedQty - soldQty;
+        const allPurchVal = prePurchVal + purchasedValue;
+        const allPurchQty = prod.opening_stock + prePurchQty + purchasedQty;
+        const avgRate = allPurchQty > 0 ? allPurchVal / allPurchQty : 0;
         const openingRate = avgRate;
         const purchaseRate = purchasedQty > 0 ? purchasedValue / purchasedQty : 0;
         const saleRate = soldQty > 0 ? soldValue / soldQty : 0;
-        const openingValue = prod.opening_stock * avgRate;
+        const openingValue = openingQty * avgRate;
         const closingValue = closingQty * avgRate;
         return {
           id: prod.id, name: prod.name, name_urdu: prod.name_urdu, unit: prod.unit,
-          opening_qty: prod.opening_stock, opening_rate: openingRate, opening_value: openingValue,
+          opening_qty: openingQty, opening_rate: openingRate, opening_value: openingValue,
           purchased_qty: purchasedQty, purchase_rate: purchaseRate, purchased_value: purchasedValue,
           sold_qty: soldQty, sale_rate: saleRate, sold_value: soldValue,
           closing_qty: closingQty, closing_rate: avgRate, closing_value: closingValue,
@@ -194,161 +201,107 @@ function registerIpcHandlers() {
       });
     }
 
-    // ─── Balance Sheet (detailed with individual line items) ───
+    // ─── Balance Sheet (as-on date filtered) ───
     if (type === 'balance-sheet') {
-      // Helper: get product stock info
+      const dt = f?.dateTo || '2999-12-31';
+      const df = `substr(date,1,10)<='${dt}'`;
       const getProductStocks = () => {
         const prods = queryAll("SELECT p.id,p.name,p.name_urdu,COALESCE(p.opening_stock,0) as opening_stock FROM products p WHERE p.status='Active' ORDER BY p.name");
         return prods.map(prod => {
-          const pq = queryOne("SELECT COALESCE(SUM(quantity),0) as q FROM purchases WHERE product_id=?", [prod.id])?.q || 0;
-          const pv = queryOne("SELECT COALESCE(SUM(net_amount),0) as v FROM purchases WHERE product_id=?", [prod.id])?.v || 0;
-          const sq = queryOne("SELECT COALESCE(SUM(quantity),0) as q FROM sales WHERE product_id=?", [prod.id])?.q || 0;
-          const cq = prod.opening_stock + pq - sq;
-          const tq = prod.opening_stock + pq;
-          const ar = tq > 0 ? pv / tq : 0;
+          const pq = queryOne(`SELECT COALESCE(SUM(quantity),0) as q FROM purchases WHERE product_id=? AND ${df}`, [prod.id])?.q || 0;
+          const pv = queryOne(`SELECT COALESCE(SUM(net_amount),0) as v FROM purchases WHERE product_id=? AND ${df}`, [prod.id])?.v || 0;
+          const sq = queryOne(`SELECT COALESCE(SUM(quantity),0) as q FROM sales WHERE product_id=? AND ${df}`, [prod.id])?.q || 0;
+          const cq = prod.opening_stock + pq - sq; const tq = prod.opening_stock + pq; const ar = tq > 0 ? pv / tq : 0;
           return { name: prod.name + ' Stock A/c', name_urdu: prod.name_urdu, value: cq * ar, qty: cq };
         });
       };
-
-      // ASSETS
-      // 1. Customers (Buyers with debit balances = they owe us)
-      const buyers = queryAll("SELECT b.name,b.name_urdu,b.opening_balance,COALESCE((SELECT SUM(net_amount) FROM sales WHERE buyer_id=b.id),0) as total_sales,COALESCE((SELECT SUM(amount) FROM payments WHERE party_type='Buyer' AND party_id=b.id AND type='Received'),0)+COALESCE((SELECT SUM(amount_paid) FROM sales WHERE buyer_id=b.id),0) as total_paid FROM buyers b WHERE b.status='Active' AND b.type='Regular' ORDER BY b.name");
-      const assetCustomers = [];
-      const liabCustomers = [];
+      const buyers = queryAll(`SELECT b.name,b.name_urdu,b.opening_balance,COALESCE((SELECT SUM(net_amount) FROM sales WHERE buyer_id=b.id AND ${df}),0) as total_sales,COALESCE((SELECT SUM(amount) FROM payments WHERE party_type='Buyer' AND party_id=b.id AND type='Received' AND ${df}),0)+COALESCE((SELECT SUM(amount_paid) FROM sales WHERE buyer_id=b.id AND ${df}),0) as total_paid FROM buyers b WHERE b.status='Active' AND b.type='Regular' ORDER BY b.name`);
+      const assetCustomers = [], liabCustomers = [];
       buyers.forEach(b => {
         const bal = b.opening_balance + b.total_sales - b.total_paid;
         if (bal > 0.01) assetCustomers.push({ name: b.name, name_urdu: b.name_urdu || '', amount: bal });
         else if (bal < -0.01) liabCustomers.push({ name: b.name, name_urdu: b.name_urdu || '', amount: Math.abs(bal) });
       });
-
-      // 2. Suppliers (with credit balances = we owe them → liability; debit = they owe us → asset)
-      const suppliers = queryAll("SELECT sp.name,sp.name_urdu,sp.opening_balance,COALESCE((SELECT SUM(net_amount) FROM purchases WHERE supplier_id=sp.id),0) as total_purchases,COALESCE((SELECT SUM(amount) FROM payments WHERE party_type='Supplier' AND party_id=sp.id AND type='Paid'),0)+COALESCE((SELECT SUM(amount_paid) FROM purchases WHERE supplier_id=sp.id),0) as total_paid FROM suppliers sp WHERE sp.status='Active' AND sp.type='Regular' ORDER BY sp.name");
-      const assetSuppliers = [];
-      const liabSuppliers = [];
+      const suppliers = queryAll(`SELECT sp.name,sp.name_urdu,sp.opening_balance,COALESCE((SELECT SUM(net_amount) FROM purchases WHERE supplier_id=sp.id AND ${df}),0) as total_purchases,COALESCE((SELECT SUM(amount) FROM payments WHERE party_type='Supplier' AND party_id=sp.id AND type='Paid' AND ${df}),0)+COALESCE((SELECT SUM(amount_paid) FROM purchases WHERE supplier_id=sp.id AND ${df}),0) as total_paid FROM suppliers sp WHERE sp.status='Active' AND sp.type='Regular' ORDER BY sp.name`);
+      const assetSuppliers = [], liabSuppliers = [];
       suppliers.forEach(sp => {
         const bal = sp.opening_balance + sp.total_purchases - sp.total_paid;
         if (bal > 0.01) liabSuppliers.push({ name: sp.name, name_urdu: sp.name_urdu || '', amount: bal });
         else if (bal < -0.01) assetSuppliers.push({ name: sp.name, name_urdu: sp.name_urdu || '', amount: Math.abs(bal) });
       });
-
-      // Merge all customer-type items per side
       const allAssetCustomers = [...assetCustomers, ...assetSuppliers];
       const allLiabCustomers = [...liabCustomers, ...liabSuppliers];
-
-      // 3. Cash
-      const totalSaleAmountPaid = queryOne("SELECT COALESCE(SUM(amount_paid),0) as t FROM sales")?.t || 0;
-      const totalPurchaseAmountPaid = queryOne("SELECT COALESCE(SUM(amount_paid),0) as t FROM purchases")?.t || 0;
-      const totalPaymentsReceived = queryOne("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='Received'")?.t || 0;
-      const totalPaymentsPaid = queryOne("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='Paid'")?.t || 0;
+      const totalSaleAmountPaid = queryOne(`SELECT COALESCE(SUM(amount_paid),0) as t FROM sales WHERE ${df}`)?.t || 0;
+      const totalPurchaseAmountPaid = queryOne(`SELECT COALESCE(SUM(amount_paid),0) as t FROM purchases WHERE ${df}`)?.t || 0;
+      const totalPaymentsReceived = queryOne(`SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='Received' AND ${df}`)?.t || 0;
+      const totalPaymentsPaid = queryOne(`SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='Paid' AND ${df}`)?.t || 0;
       const cashInHand = (totalSaleAmountPaid + totalPaymentsReceived) - (totalPurchaseAmountPaid + totalPaymentsPaid);
-
-      // 4. Product stocks — positive = asset, negative = liability
       const productStocks = getProductStocks();
       const assetStocks = productStocks.filter(s => s.value > 0.01);
       const liabStocks = productStocks.filter(s => s.value < -0.01).map(s => ({ ...s, value: Math.abs(s.value) }));
-
-      // 5. Profit/Loss
-      const totalSales = queryOne("SELECT COALESCE(SUM(net_amount),0) as t FROM sales")?.t || 0;
-      const totalPurchases = queryOne("SELECT COALESCE(SUM(net_amount),0) as t FROM purchases")?.t || 0;
-      const totalCommission = (queryOne("SELECT COALESCE(SUM(commission),0) as t FROM sales")?.t || 0) + (queryOne("SELECT COALESCE(SUM(commission),0) as t FROM purchases")?.t || 0);
+      const totalSales = queryOne(`SELECT COALESCE(SUM(net_amount),0) as t FROM sales WHERE ${df}`)?.t || 0;
+      const totalPurchases = queryOne(`SELECT COALESCE(SUM(net_amount),0) as t FROM purchases WHERE ${df}`)?.t || 0;
+      const totalCommission = (queryOne(`SELECT COALESCE(SUM(commission),0) as t FROM sales WHERE ${df}`)?.t || 0) + (queryOne(`SELECT COALESCE(SUM(commission),0) as t FROM purchases WHERE ${df}`)?.t || 0);
       const profitLoss = totalSales - totalPurchases + totalCommission;
-
-      // Sub-totals
       const customerAssetTotal = allAssetCustomers.reduce((s, c) => s + c.amount, 0);
       const cashTotal = Math.max(0, cashInHand);
       const stockAssetTotal = assetStocks.reduce((s, p) => s + p.value, 0);
       const assetsTotal = customerAssetTotal + cashTotal + stockAssetTotal;
-
       const customerLiabTotal = allLiabCustomers.reduce((s, c) => s + c.amount, 0);
       const stockLiabTotal = liabStocks.reduce((s, p) => s + p.value, 0);
       const equityValue = assetsTotal - customerLiabTotal - stockLiabTotal - Math.abs(Math.min(0, profitLoss));
-      const liabTotal = assetsTotal; // must balance
-
+      const liabTotal = assetsTotal;
       return {
-        assets: {
-          customers: allAssetCustomers, customerTotal: customerAssetTotal,
-          cash: [{ name: 'Cash Book', name_urdu: 'روکڑ کھاتا', amount: cashTotal }], cashTotal,
-          stocks: assetStocks, stockTotal: stockAssetTotal,
-          total: assetsTotal,
-        },
-        liabilities: {
-          customers: allLiabCustomers, customerTotal: customerLiabTotal,
-          stocks: liabStocks, stockTotal: stockLiabTotal,
-          profitLoss, equity: equityValue,
-          total: liabTotal,
-        },
+        assets: { customers: allAssetCustomers, customerTotal: customerAssetTotal, cash: [{ name: 'Cash Book', name_urdu: 'روکڑ کھاتا', amount: cashTotal }], cashTotal, stocks: assetStocks, stockTotal: stockAssetTotal, total: assetsTotal },
+        liabilities: { customers: allLiabCustomers, customerTotal: customerLiabTotal, stocks: liabStocks, stockTotal: stockLiabTotal, profitLoss, equity: equityValue, total: liabTotal },
         commissionEarned: totalCommission,
       };
     }
 
-    // ─── Trial Balance (detailed with individual accounts per category) ───
+    // ─── Trial Balance (as-on date filtered) ───
     if (type === 'trial-balance') {
+      const dt = f?.dateTo || '2999-12-31';
+      const df = `substr(date,1,10)<='${dt}'`;
       const groups = [];
-
-      // 1. Customers (Buyers + Suppliers individual accounts)
-      const buyers = queryAll("SELECT b.name,b.name_urdu,b.opening_balance,COALESCE((SELECT SUM(net_amount) FROM sales WHERE buyer_id=b.id),0) as total_sales,COALESCE((SELECT SUM(amount) FROM payments WHERE party_type='Buyer' AND party_id=b.id AND type='Received'),0)+COALESCE((SELECT SUM(amount_paid) FROM sales WHERE buyer_id=b.id),0) as total_paid FROM buyers b WHERE b.status='Active' AND b.type='Regular' ORDER BY b.name");
-      const suppliers = queryAll("SELECT sp.name,sp.name_urdu,sp.opening_balance,COALESCE((SELECT SUM(net_amount) FROM purchases WHERE supplier_id=sp.id),0) as total_purchases,COALESCE((SELECT SUM(amount) FROM payments WHERE party_type='Supplier' AND party_id=sp.id AND type='Paid'),0)+COALESCE((SELECT SUM(amount_paid) FROM purchases WHERE supplier_id=sp.id),0) as total_paid FROM suppliers sp WHERE sp.status='Active' AND sp.type='Regular' ORDER BY sp.name");
+      const buyers = queryAll(`SELECT b.name,b.name_urdu,b.opening_balance,COALESCE((SELECT SUM(net_amount) FROM sales WHERE buyer_id=b.id AND ${df}),0) as total_sales,COALESCE((SELECT SUM(amount) FROM payments WHERE party_type='Buyer' AND party_id=b.id AND type='Received' AND ${df}),0)+COALESCE((SELECT SUM(amount_paid) FROM sales WHERE buyer_id=b.id AND ${df}),0) as total_paid FROM buyers b WHERE b.status='Active' AND b.type='Regular' ORDER BY b.name`);
+      const suppliers = queryAll(`SELECT sp.name,sp.name_urdu,sp.opening_balance,COALESCE((SELECT SUM(net_amount) FROM purchases WHERE supplier_id=sp.id AND ${df}),0) as total_purchases,COALESCE((SELECT SUM(amount) FROM payments WHERE party_type='Supplier' AND party_id=sp.id AND type='Paid' AND ${df}),0)+COALESCE((SELECT SUM(amount_paid) FROM purchases WHERE supplier_id=sp.id AND ${df}),0) as total_paid FROM suppliers sp WHERE sp.status='Active' AND sp.type='Regular' ORDER BY sp.name`);
       const custAccounts = [];
-      buyers.forEach(b => {
-        const bal = b.opening_balance + b.total_sales - b.total_paid;
-        custAccounts.push({ name: b.name, name_urdu: b.name_urdu || '', debit: Math.max(0, bal), credit: Math.max(0, -bal) });
-      });
-      suppliers.forEach(sp => {
-        const bal = sp.opening_balance + sp.total_purchases - sp.total_paid;
-        custAccounts.push({ name: sp.name, name_urdu: sp.name_urdu || '', debit: Math.max(0, -bal), credit: Math.max(0, bal) });
-      });
+      buyers.forEach(b => { const bal = b.opening_balance + b.total_sales - b.total_paid; custAccounts.push({ name: b.name, name_urdu: b.name_urdu || '', debit: Math.max(0, bal), credit: Math.max(0, -bal) }); });
+      suppliers.forEach(sp => { const bal = sp.opening_balance + sp.total_purchases - sp.total_paid; custAccounts.push({ name: sp.name, name_urdu: sp.name_urdu || '', debit: Math.max(0, -bal), credit: Math.max(0, bal) }); });
       groups.push({ group: 'Customers', group_urdu: 'گاہک / سپلائرز', accounts: custAccounts });
-
-      // 2. Cash A/c
-      const totalSaleAmtPaid = queryOne("SELECT COALESCE(SUM(amount_paid),0) as t FROM sales")?.t || 0;
-      const totalPurchAmtPaid = queryOne("SELECT COALESCE(SUM(amount_paid),0) as t FROM purchases")?.t || 0;
-      const totalPmtReceived = queryOne("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='Received'")?.t || 0;
-      const totalPmtPaid = queryOne("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='Paid'")?.t || 0;
+      const totalSaleAmtPaid = queryOne(`SELECT COALESCE(SUM(amount_paid),0) as t FROM sales WHERE ${df}`)?.t || 0;
+      const totalPurchAmtPaid = queryOne(`SELECT COALESCE(SUM(amount_paid),0) as t FROM purchases WHERE ${df}`)?.t || 0;
+      const totalPmtReceived = queryOne(`SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='Received' AND ${df}`)?.t || 0;
+      const totalPmtPaid = queryOne(`SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='Paid' AND ${df}`)?.t || 0;
       const cashBal = (totalSaleAmtPaid + totalPmtReceived) - (totalPurchAmtPaid + totalPmtPaid);
       groups.push({ group: 'Cash A/c', group_urdu: 'نقد کھاتا', accounts: [{ name: 'Cash Book', name_urdu: 'روکڑ کھاتا', debit: Math.max(0, cashBal), credit: Math.max(0, -cashBal) }] });
-
-      // 3. Equity Capital
-      const totalSales = queryOne("SELECT COALESCE(SUM(net_amount),0) as t FROM sales")?.t || 0;
-      const totalPurchases = queryOne("SELECT COALESCE(SUM(net_amount),0) as t FROM purchases")?.t || 0;
-      const totalComm = (queryOne("SELECT COALESCE(SUM(commission),0) as t FROM sales")?.t || 0) + (queryOne("SELECT COALESCE(SUM(commission),0) as t FROM purchases")?.t || 0);
+      const totalSales = queryOne(`SELECT COALESCE(SUM(net_amount),0) as t FROM sales WHERE ${df}`)?.t || 0;
+      const totalPurchases = queryOne(`SELECT COALESCE(SUM(net_amount),0) as t FROM purchases WHERE ${df}`)?.t || 0;
+      const totalComm = (queryOne(`SELECT COALESCE(SUM(commission),0) as t FROM sales WHERE ${df}`)?.t || 0) + (queryOne(`SELECT COALESCE(SUM(commission),0) as t FROM purchases WHERE ${df}`)?.t || 0);
       const pl = totalSales - totalPurchases + totalComm;
       groups.push({ group: 'Equity Capital', group_urdu: 'ایکویٹی سرمایہ', accounts: [{ name: 'Profit / Loss A/c', name_urdu: 'نفع نقصان', debit: Math.max(0, -pl), credit: Math.max(0, pl) }] });
-
-      // 4. Products Sale A/c (per product)
       const prods = queryAll("SELECT p.id,p.name,p.name_urdu FROM products p WHERE p.status='Active' ORDER BY p.name");
       const saleAccounts = prods.map(pr => {
-        const saleVal = queryOne("SELECT COALESCE(SUM(net_amount),0) as v FROM sales WHERE product_id=?", [pr.id])?.v || 0;
+        const saleVal = queryOne(`SELECT COALESCE(SUM(net_amount),0) as v FROM sales WHERE product_id=? AND ${df}`, [pr.id])?.v || 0;
         return { name: pr.name + ' Sale A/c', name_urdu: pr.name_urdu || '', debit: 0, credit: saleVal };
       });
       groups.push({ group: 'Products Sale A/c', group_urdu: 'فروخت کھاتے', accounts: saleAccounts });
-
-      // 5. Products Stock A/c (per product closing stock value)
       const stockAccounts = prods.map(pr => {
-        const pq = queryOne("SELECT COALESCE(SUM(quantity),0) as q FROM purchases WHERE product_id=?", [pr.id])?.q || 0;
-        const pv = queryOne("SELECT COALESCE(SUM(net_amount),0) as v FROM purchases WHERE product_id=?", [pr.id])?.v || 0;
-        const sq = queryOne("SELECT COALESCE(SUM(quantity),0) as q FROM sales WHERE product_id=?", [pr.id])?.q || 0;
+        const pq = queryOne(`SELECT COALESCE(SUM(quantity),0) as q FROM purchases WHERE product_id=? AND ${df}`, [pr.id])?.q || 0;
+        const pv = queryOne(`SELECT COALESCE(SUM(net_amount),0) as v FROM purchases WHERE product_id=? AND ${df}`, [pr.id])?.v || 0;
+        const sq = queryOne(`SELECT COALESCE(SUM(quantity),0) as q FROM sales WHERE product_id=? AND ${df}`, [pr.id])?.q || 0;
         const os = queryOne("SELECT COALESCE(opening_stock,0) as o FROM products WHERE id=?", [pr.id])?.o || 0;
         const cq = os + pq - sq; const tq = os + pq; const ar = tq > 0 ? pv / tq : 0; const sv = cq * ar;
         return { name: pr.name + ' Stock A/c', name_urdu: pr.name_urdu || '', debit: Math.max(0, sv), credit: Math.max(0, -sv) };
       });
       groups.push({ group: 'Products Stock A/c', group_urdu: 'اسٹاک کھاتے', accounts: stockAccounts });
-
-      // 6. Products COGs A/c (per product purchase expense)
       const cogsAccounts = prods.map(pr => {
-        const purchVal = queryOne("SELECT COALESCE(SUM(net_amount),0) as v FROM purchases WHERE product_id=?", [pr.id])?.v || 0;
+        const purchVal = queryOne(`SELECT COALESCE(SUM(net_amount),0) as v FROM purchases WHERE product_id=? AND ${df}`, [pr.id])?.v || 0;
         return { name: pr.name + ' Expense A/c', name_urdu: pr.name_urdu || '', debit: purchVal, credit: 0 };
       });
       groups.push({ group: 'Products COGs A/c', group_urdu: 'لاگت کھاتے', accounts: cogsAccounts });
-
-      // Grand totals
       let totalDebit = 0, totalCredit = 0;
-      groups.forEach(g => {
-        g.subtotalDebit = g.accounts.reduce((s, a) => s + a.debit, 0);
-        g.subtotalCredit = g.accounts.reduce((s, a) => s + a.credit, 0);
-        totalDebit += g.subtotalDebit;
-        totalCredit += g.subtotalCredit;
-      });
-
+      groups.forEach(g => { g.subtotalDebit = g.accounts.reduce((s, a) => s + a.debit, 0); g.subtotalCredit = g.accounts.reduce((s, a) => s + a.credit, 0); totalDebit += g.subtotalDebit; totalCredit += g.subtotalCredit; });
       return { groups, totalDebit, totalCredit };
     }
 
