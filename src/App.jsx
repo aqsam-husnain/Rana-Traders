@@ -15,6 +15,7 @@ import Purchases from './pages/Purchases';
 import DayBook from './pages/DayBook';
 import Commission from './pages/Commission';
 import Reports from './pages/Reports';
+import Expenses from './pages/Expenses';
 import Settings from './pages/Settings';
 
 function ProtectedRoute({ children }) {
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="purchases" element={<Purchases />} />
         <Route path="daybook" element={<DayBook />} />
         <Route path="commission" element={<Commission />} />
+        <Route path="expenses" element={<Expenses />} />
         <Route path="reports" element={<Reports />} />
         <Route path="settings" element={<Settings />} />
       </Route>

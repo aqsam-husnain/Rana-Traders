@@ -9,6 +9,7 @@ export default function DayBook() {
   const [date, setDate] = useState(todayDateOnly());
   const [entries, setEntries] = useState([]);
   const [rokarEntries, setRokarEntries] = useState([]);
+  const [rokarCumulative, setRokarCumulative] = useState({ openingBalance: 0, totalIn: 0, totalOut: 0, balance: 0 });
   const [activeTab, setActiveTab] = useState('roznamcha');
   const toast = useToast();
   const dateInputRef = React.useRef(null);
@@ -17,6 +18,13 @@ export default function DayBook() {
     window.api.getDaybook(date).then(setEntries);
     window.api.getRokar(date).then(setRokarEntries);
   }, [date]);
+
+  // Load cumulative running balance once on mount (and when tab switches to rokar)
+  useEffect(() => {
+    if (activeTab === 'rokar') {
+      window.api.getRokarCumulative().then(setRokarCumulative);
+    }
+  }, [activeTab]);
 
   // ── Roznamcha data ──
   const sortedEntries = [...entries].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
@@ -31,9 +39,11 @@ export default function DayBook() {
 
   // ── Rokar Khata data ──
   const sortedRokar = [...rokarEntries].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-  const rokarJama  = sortedRokar.filter(e => e.type === 'Walk-in Sale' || e.type === 'Cash Received' || e.type === 'Payment In');
-  const rokarKharch = sortedRokar.filter(e => e.type === 'Walk-in Purchase' || e.type === 'Cash Paid' || e.type === 'Payment Out');
-  const totalRokarJama  = rokarJama.reduce((s, e) => s + (e.amount || 0), 0);
+  // جمع (Cash In): Walk-in sales + regular buyer partial cash + standalone cash payments received
+  const rokarJama  = sortedRokar.filter(e => e.type === 'Walk-in Sale' || e.type === 'Cash Received');
+  // خرچ (Cash Out): Walk-in purchases + regular supplier partial cash + standalone cash payments made + daily expenses
+  const rokarKharch = sortedRokar.filter(e => e.type === 'Walk-in Purchase' || e.type === 'Cash Paid' || e.type === 'Expense');
+  const totalRokarJama   = rokarJama.reduce((s, e) => s + (e.amount || 0), 0);
   const totalRokarKharch = rokarKharch.reduce((s, e) => s + (e.amount || 0), 0);
   const rokarBalance = totalRokarJama - totalRokarKharch;
 
@@ -106,6 +116,50 @@ export default function DayBook() {
     if (saved) toast.success('File exported successfully!');
   };
 
+  // ── Rokar Khata Export ──
+  const handleExportRokar = async (format) => {
+    if (sortedRokar.length === 0) return;
+    const ts = fileTimestamp();
+    const fmtTime = (e) => e.date && e.date.includes('T') ? new Date(e.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—';
+    if (format === 'pdf') {
+      const jamaCols   = ['#', 'Time', 'Type', 'Party / Description', 'Amount'];
+      const kharchCols = ['#', 'Time', 'Type', 'Party / Description', 'Amount'];
+      const jamaRows   = rokarJama.map((e, i) => [i + 1, fmtTime(e), e.type, e.party_name || e.product_name || '—', formatPKR(e.amount)]);
+      const kharchRows = rokarKharch.map((e, i) => [i + 1, fmtTime(e), e.type, e.party_name || e.product_name || '—', formatPKR(e.amount)]);
+      const saved = await exportDayBookPDF({
+        title: `Rokar Khata — روکڑ کھاتہ`,
+        inflowColumns: jamaCols, outflowColumns: kharchCols,
+        inflowRows: jamaRows, outflowRows: kharchRows,
+        inflowTotals: { total: formatPKR(totalRokarJama) },
+        outflowTotals: { total: formatPKR(totalRokarKharch) },
+        summary: [
+          { label: 'کل جمع — Cash In',  value: formatPKR(totalRokarJama) },
+          { label: 'کل خرچ — Cash Out', value: formatPKR(totalRokarKharch) },
+          { label: 'نقد بیلنس — Balance', value: (rokarBalance < 0 ? '−' : '+') + formatPKR(Math.abs(rokarBalance)) },
+        ],
+        dateRange: formatDate(date),
+        fileName: `RokarKhata_${date}_${ts}.pdf`,
+      });
+      if (saved) toast.success('File exported successfully!');
+    } else {
+      const columns = ['#', 'Time', 'Flow', 'Type', 'Party / Description', 'Amount'];
+      const allRows = [
+        ...rokarJama.map((e, i) => [i + 1, fmtTime(e), 'جمع (In)', e.type, e.party_name || e.product_name || '—', formatPKR(e.amount)]),
+        ...rokarKharch.map((e, i) => [rokarJama.length + i + 1, fmtTime(e), 'خرچ (Out)', e.type, e.party_name || e.product_name || '—', formatPKR(e.amount)]),
+      ];
+      const summary = [
+        { label: 'کل جمع — Cash In',  value: formatPKR(totalRokarJama) },
+        { label: 'کل خرچ — Cash Out', value: formatPKR(totalRokarKharch) },
+        { label: 'نقد بیلنس — Balance', value: formatPKR(rokarBalance) },
+      ];
+      const exportData = { title: `Rokar Khata — روکڑ کھاتہ`, columns, rows: allRows, summary, dateRange: formatDate(date) };
+      let saved = false;
+      if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `RokarKhata_${date}_${ts}.xlsx` });
+      else if (format === 'csv')  saved = await exportToCSV({ ...exportData, fileName: `RokarKhata_${date}_${ts}.csv` });
+      if (saved) toast.success('File exported successfully!');
+    }
+  };
+
   // Time formatter helper
   const formatTime = (dateStr) => {
     if (dateStr && dateStr.includes('T')) {
@@ -123,15 +177,14 @@ export default function DayBook() {
     return {};
   };
 
-  // Type badge color helper (Rokar Khata)
+  // Type badge color helper (Rokar Khata — Walk-in only)
   const getRokarBadge = (type) => {
-    if (type === 'Walk-in Sale') return { label: 'Walk-in نقد', color: '#a78bfa', bg: 'rgba(167,139,250,0.1)', border: 'rgba(167,139,250,0.2)' };
-    if (type === 'Cash Received') return { label: 'وصولی نقد', color: 'var(--green)', bg: 'rgba(52,211,153,0.1)', border: 'rgba(52,211,153,0.2)' };
-    if (type === 'Payment In') return { label: 'ادائیگی وصول', color: '#4fc3f7', bg: 'rgba(79,195,247,0.1)', border: 'rgba(79,195,247,0.2)' };
-    if (type === 'Walk-in Purchase') return { label: 'Walk-in خرچ', color: '#f87171', bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.2)' };
-    if (type === 'Cash Paid') return { label: 'ادائیگی نقد', color: 'var(--red)', bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.2)' };
-    if (type === 'Payment Out') return { label: 'ادائیگی آوٹ', color: '#ff9800', bg: 'rgba(255,152,0,0.1)', border: 'rgba(255,152,0,0.2)' };
-    return {};
+    if (type === 'Walk-in Sale')     return { label: 'Walk-in نقد فروخت', color: '#a78bfa', bg: 'rgba(167,139,250,0.1)', border: 'rgba(167,139,250,0.2)' };
+    if (type === 'Cash Received')    return { label: 'وصولی نقد', color: 'var(--green)', bg: 'rgba(52,211,153,0.1)', border: 'rgba(52,211,153,0.2)' };
+    if (type === 'Walk-in Purchase') return { label: 'Walk-in نقد خرید', color: '#f87171', bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.2)' };
+    if (type === 'Cash Paid')        return { label: 'ادائیگی نقد', color: 'var(--red)', bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.2)' };
+    if (type === 'Expense')          return { label: 'خرچہ', color: '#ff9800', bg: 'rgba(255,152,0,0.1)', border: 'rgba(255,152,0,0.2)' };
+    return { label: type, color: 'var(--text-muted)', bg: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.1)' };
   };
 
   return (
@@ -144,6 +197,9 @@ export default function DayBook() {
         </h2>
         {activeTab === 'roznamcha' && (
           <ExportDropdown onExport={handleExport} disabled={sortedEntries.length === 0} />
+        )}
+        {activeTab === 'rokar' && (
+          <ExportDropdown onExport={handleExportRokar} disabled={sortedRokar.length === 0} />
         )}
       </div>
 
@@ -543,26 +599,57 @@ export default function DayBook() {
           ═══════════════════════════════════════════════════════ */}
       {activeTab === 'rokar' && (
         <div>
-          {/* Rokar Summary Stats */}
+          {/* ── Cumulative Running Balance Banner ── */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '14px 22px', marginBottom: 16, borderRadius: 14,
+            background: rokarCumulative.balance >= 0
+              ? 'linear-gradient(135deg, rgba(52,211,153,0.1), rgba(52,211,153,0.04))'
+              : 'linear-gradient(135deg, rgba(248,113,113,0.1), rgba(248,113,113,0.04))',
+            border: `1px solid ${rokarCumulative.balance >= 0 ? 'rgba(52,211,153,0.25)' : 'rgba(248,113,113,0.25)'}`,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 12, fontSize: '1.6rem',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: rokarCumulative.balance >= 0 ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)',
+              }}>💰</div>
+              <div>
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', marginBottom: 2 }}>
+                  Cash in Hand — <span className="urdu">نقد ہاتھ میں (کل وقتی بیلنس)</span>
+                </div>
+                <div style={{ fontSize: '1.6rem', fontWeight: 800, color: rokarCumulative.balance >= 0 ? 'var(--green)' : 'var(--red)', lineHeight: 1 }}>
+                  {rokarCumulative.balance < 0 ? '−' : ''}{formatPKR(Math.abs(rokarCumulative.balance))}
+                </div>
+              </div>
+            </div>
+            <div style={{ textAlign: 'right', fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 2 }}>
+              <div>Opening: <strong style={{ color: 'var(--accent)' }}>{formatPKR(rokarCumulative.openingBalance)}</strong></div>
+              <div>Total In: <strong style={{ color: 'var(--green)' }}>{formatPKR(rokarCumulative.totalIn)}</strong></div>
+              <div>Total Out: <strong style={{ color: 'var(--red)' }}>{formatPKR(rokarCumulative.totalOut)}</strong></div>
+            </div>
+          </div>
+
+          {/* Daily Stats */}
           <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
             <div className="stat-card">
               <div className="stat-icon green">↓</div>
               <div className="stat-info">
-                <h3>کل جمع — Cash In</h3>
+                <h3>آج جمع — Today's Cash In</h3>
                 <div className="stat-value" style={{ color: 'var(--green)' }}>{formatPKR(totalRokarJama)}</div>
               </div>
             </div>
             <div className="stat-card">
               <div className="stat-icon red">↑</div>
               <div className="stat-info">
-                <h3>کل خرچ — Cash Out</h3>
+                <h3>آج خرچ — Today's Cash Out</h3>
                 <div className="stat-value" style={{ color: 'var(--red)' }}>{formatPKR(totalRokarKharch)}</div>
               </div>
             </div>
             <div className="stat-card">
               <div className="stat-icon indigo">₨</div>
               <div className="stat-info">
-                <h3>نقد بیلنس — Cash Balance</h3>
+                <h3>آج بیلنس — Today's Net</h3>
                 <div className="stat-value" style={{ color: rokarBalance >= 0 ? 'var(--green)' : 'var(--red)' }}>
                   {formatPKR(Math.abs(rokarBalance))}
                   {rokarBalance < 0 && <span style={{ fontSize: '0.7rem', marginLeft: 4 }}>(Deficit)</span>}
@@ -570,6 +657,7 @@ export default function DayBook() {
               </div>
             </div>
           </div>
+
 
           {/* Rokar T-Account */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 0, marginBottom: 24, minHeight: 300 }}>
@@ -582,7 +670,7 @@ export default function DayBook() {
                 </div>
                 <div>
                   <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', lineHeight: 1 }}>نقد آمدن — Cash In</div>
-                  <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--green)', lineHeight: 1.4 }}>جمع <span className="urdu" style={{ fontSize: '0.85rem' }}>Walk-in، وصولی، ادائیگی وصول</span></div>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--green)', lineHeight: 1.4 }}>جمع <span className="urdu" style={{ fontSize: '0.85rem' }}>نقد فروخت و وصولی۔</span></div>
                 </div>
               </div>
               <div style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid rgba(52,211,153,0.15)', borderTop: 'none', borderRight: 'none', borderRadius: '0 0 0 14px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -643,7 +731,7 @@ export default function DayBook() {
                 </div>
                 <div>
                   <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', lineHeight: 1 }}>نقد خرچ — Cash Out</div>
-                  <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--red)', lineHeight: 1.4 }}>خرچ <span className="urdu" style={{ fontSize: '0.85rem' }}>ادائیگی، خریداری نقد</span></div>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--red)', lineHeight: 1.4 }}>خرچ <span className="urdu" style={{ fontSize: '0.85rem' }}>نقد خرید و روزانہ خرچہ۔</span></div>
                 </div>
               </div>
               <div style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid rgba(248,113,113,0.15)', borderTop: 'none', borderLeft: 'none', borderRadius: '0 0 14px 0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

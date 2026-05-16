@@ -123,6 +123,28 @@ function registerIpcHandlers() {
   ipcMain.handle('add-payment', (_e, d) => runSql('INSERT INTO payments (party_type,party_id,date,amount,type,mode,reference,notes) VALUES (?,?,?,?,?,?,?,?)', [d.party_type, d.party_id, d.date, d.amount, d.type, d.mode, d.reference, d.notes]));
   ipcMain.handle('delete-payment', (_e, id) => { runSql('DELETE FROM payments WHERE id=?', [id]); return { success: true }; });
 
+  // Expenses — Daily Kharcha (خرچہ) — deducted from Rokar Khata
+  ipcMain.handle('get-expenses', (_e, f) => {
+    let q = 'SELECT * FROM expenses';
+    const pp = [], conds = [];
+    if (f?.dateFrom) { conds.push('substr(date,1,10)>=?'); pp.push(f.dateFrom); }
+    if (f?.dateTo)   { conds.push('substr(date,1,10)<=?'); pp.push(f.dateTo); }
+    if (f?.category) { conds.push('category=?'); pp.push(f.category); }
+    if (conds.length) q += ' WHERE ' + conds.join(' AND ');
+    q += ' ORDER BY date DESC, id DESC';
+    return queryAll(q, pp);
+  });
+  ipcMain.handle('add-expense', (_e, d) => runSql(
+    'INSERT INTO expenses (date,description,description_urdu,category,amount,notes) VALUES (?,?,?,?,?,?)',
+    [d.date, d.description, d.description_urdu || '', d.category || 'General', d.amount, d.notes || '']
+  ));
+  ipcMain.handle('update-expense', (_e, id, d) => {
+    runSql('UPDATE expenses SET date=?,description=?,description_urdu=?,category=?,amount=?,notes=? WHERE id=?',
+      [d.date, d.description, d.description_urdu || '', d.category || 'General', d.amount, d.notes || '', id]);
+    return { success: true };
+  });
+  ipcMain.handle('delete-expense', (_e, id) => { runSql('DELETE FROM expenses WHERE id=?', [id]); return { success: true }; });
+
   // Ledger
   ipcMain.handle('get-buyer-ledger', (_e, bid) => {
     const buyer = queryOne('SELECT * FROM buyers WHERE id=?', [bid]);
@@ -154,9 +176,16 @@ function registerIpcHandlers() {
     return [...s, ...pu, ...pa];
   });
 
-  // Rokar Khata — cash-only transactions (روکڑ کھاتہ)
+  // Rokar Khata — Full Cash Book (روکڑ کھاتہ)
+  // Tracks ALL physical cash that moves in/out of hand, regardless of party type.
+  // Rule:
+  //   Walk-in buyer/supplier  → full net_amount (they always settle fully in cash)
+  //   Regular buyer/supplier  → only the cash portion (amount_paid at time of transaction)
+  //   Standalone payments     → only mode='Cash' (excludes cheque, transfer, etc.)
   ipcMain.handle('get-rokar', (_e, date) => {
-    // جمع: Walk-in Sales (always cash — full net_amount)
+    // ─── جمع (Cash In) ───────────────────────────────────────────────────────
+
+    // 1. Walk-in buyer sales — full amount received in cash on the spot
     const walkInSales = queryAll(
       `SELECT 'Walk-in Sale' as type, s.date, s.net_amount as amount,
               b.name as party_name, b.name_urdu as party_name_urdu,
@@ -166,8 +195,9 @@ function registerIpcHandlers() {
        LEFT JOIN products p ON s.product_id = p.id
        WHERE substr(s.date,1,10)=? AND b.type='Walk-in'`, [date]);
 
-    // جمع: Regular Buyer Sales where cash was received at time of sale
-    const cashSales = queryAll(
+    // 2. Regular buyer sales where cash was received at time of sale (amount_paid > 0)
+    //    e.g. buyer pays half now, rest on credit — the "half now" comes into Rokar
+    const regularCashSales = queryAll(
       `SELECT 'Cash Received' as type, s.date, s.amount_paid as amount,
               b.name as party_name, b.name_urdu as party_name_urdu,
               p.name as product_name, p.name_urdu as product_name_urdu
@@ -176,7 +206,9 @@ function registerIpcHandlers() {
        LEFT JOIN products p ON s.product_id = p.id
        WHERE substr(s.date,1,10)=? AND b.type='Regular' AND s.amount_paid > 0`, [date]);
 
-    // خرچ: Walk-in Purchases (always cash — full net_amount, mirrors Walk-in Sales logic)
+    // ─── خرچ (Cash Out) ──────────────────────────────────────────────────────
+
+    // 3. Walk-in supplier purchases — full amount paid in cash on the spot
     const walkInPurchases = queryAll(
       `SELECT 'Walk-in Purchase' as type, pu.date, pu.net_amount as amount,
               sp.name as party_name, sp.name_urdu as party_name_urdu,
@@ -186,8 +218,9 @@ function registerIpcHandlers() {
        LEFT JOIN products p ON pu.product_id = p.id
        WHERE substr(pu.date,1,10)=? AND sp.type='Walk-in'`, [date]);
 
-    // خرچ: Regular Supplier Purchases where cash was paid at time of purchase
-    const cashPurchases = queryAll(
+    // 4. Regular supplier purchases where cash was paid at time of purchase (amount_paid > 0)
+    //    e.g. supplier asks for half in cash now — that half goes OUT of Rokar
+    const regularCashPurchases = queryAll(
       `SELECT 'Cash Paid' as type, pu.date, pu.amount_paid as amount,
               sp.name as party_name, sp.name_urdu as party_name_urdu,
               p.name as product_name, p.name_urdu as product_name_urdu
@@ -196,22 +229,56 @@ function registerIpcHandlers() {
        LEFT JOIN products p ON pu.product_id = p.id
        WHERE substr(pu.date,1,10)=? AND sp.type='Regular' AND pu.amount_paid > 0`, [date]);
 
-    // جمع / خرچ: Standalone payments (pure cash transfers)
-    const payments = queryAll(
-      `SELECT CASE WHEN type='Received' THEN 'Payment In' ELSE 'Payment Out' END as type,
-              date, amount,
-              CASE WHEN party_type='Buyer'
-                THEN (SELECT name FROM buyers WHERE id=party_id)
-                ELSE (SELECT name FROM suppliers WHERE id=party_id)
+    // 5. Standalone cash payments (mode='Cash' only — excludes cheque/transfer)
+    //    Covers both regular and walk-in parties' separate payment entries
+    //    e.g. daily kharcha, or settling a running balance in cash
+    const cashPayments = queryAll(
+      `SELECT CASE WHEN pay.type='Received' THEN 'Cash Received' ELSE 'Cash Paid' END as type,
+              pay.date, pay.amount,
+              CASE WHEN pay.party_type='Buyer'
+                THEN (SELECT name FROM buyers WHERE id=pay.party_id)
+                ELSE (SELECT name FROM suppliers WHERE id=pay.party_id)
               END as party_name,
-              CASE WHEN party_type='Buyer'
-                THEN (SELECT name_urdu FROM buyers WHERE id=party_id)
-                ELSE (SELECT name_urdu FROM suppliers WHERE id=party_id)
+              CASE WHEN pay.party_type='Buyer'
+                THEN (SELECT name_urdu FROM buyers WHERE id=pay.party_id)
+                ELSE (SELECT name_urdu FROM suppliers WHERE id=pay.party_id)
               END as party_name_urdu,
               '' as product_name, '' as product_name_urdu
-       FROM payments WHERE substr(date,1,10)=?`, [date]);
+       FROM payments pay
+       WHERE substr(pay.date,1,10)=? AND pay.mode='Cash'`, [date]);
 
-    return [...walkInSales, ...cashSales, ...cashPurchases, ...payments];
+    // 6. Daily expenses (خرچہ) — cash spent from Rokar on misc daily expenses
+    const dailyExpenses = queryAll(
+      `SELECT 'Expense' as type, e.date, e.amount,
+              e.category as party_name, '' as party_name_urdu,
+              e.description as product_name, e.description_urdu as product_name_urdu
+       FROM expenses e
+       WHERE substr(e.date,1,10)=?`, [date]);
+
+    return [...walkInSales, ...regularCashSales, ...walkInPurchases, ...regularCashPurchases, ...cashPayments, ...dailyExpenses];
+  });
+
+  // Rokar Khata — All-time running balance (نقد بیلنس)
+  // Returns the cumulative cash in hand = Opening Balance + All Cash In − All Cash Out
+  ipcMain.handle('get-rokar-cumulative', () => {
+    const openingBalance = parseFloat(queryOne("SELECT value FROM settings WHERE key='rokar_opening_balance'")?.value || '0');
+
+    // All-time جمع (Cash In)
+    const allWalkInSales     = queryOne("SELECT COALESCE(SUM(s.net_amount),0) as t FROM sales s LEFT JOIN buyers b ON s.buyer_id=b.id WHERE b.type='Walk-in'")?.t || 0;
+    const allRegCashSales    = queryOne("SELECT COALESCE(SUM(s.amount_paid),0) as t FROM sales s LEFT JOIN buyers b ON s.buyer_id=b.id WHERE b.type='Regular' AND s.amount_paid>0")?.t || 0;
+    const allCashPaymentsIn  = queryOne("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='Received' AND mode='Cash'")?.t || 0;
+
+    // All-time خرچ (Cash Out)
+    const allWalkInPurchases  = queryOne("SELECT COALESCE(SUM(pu.net_amount),0) as t FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id WHERE sp.type='Walk-in'")?.t || 0;
+    const allRegCashPurchases = queryOne("SELECT COALESCE(SUM(pu.amount_paid),0) as t FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id WHERE sp.type='Regular' AND pu.amount_paid>0")?.t || 0;
+    const allCashPaymentsOut  = queryOne("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='Paid' AND mode='Cash'")?.t || 0;
+    const allExpenses         = queryOne("SELECT COALESCE(SUM(amount),0) as t FROM expenses")?.t || 0;
+
+    const totalIn  = allWalkInSales + allRegCashSales + allCashPaymentsIn;
+    const totalOut = allWalkInPurchases + allRegCashPurchases + allCashPaymentsOut + allExpenses;
+    const balance  = openingBalance + totalIn - totalOut;
+
+    return { openingBalance, totalIn, totalOut, balance };
   });
 
   // Reports

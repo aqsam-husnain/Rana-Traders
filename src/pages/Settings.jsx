@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { MdBackup, MdRestore, MdDeleteForever, MdLightMode, MdDarkMode, MdInfo, MdStorage, MdWarning, MdCheckCircle, MdError, MdWarningAmber } from 'react-icons/md';
+import { MdBackup, MdRestore, MdDeleteForever, MdLightMode, MdDarkMode, MdInfo, MdStorage, MdWarning, MdCheckCircle, MdError, MdWarningAmber, MdAccountBalanceWallet, MdSave, MdEdit, MdLock, MdLockOpen } from 'react-icons/md';
 import Modal from '../components/Modal';
 import logo from '../assets/logo.png';
+import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
 
 export default function Settings() {
   const { theme, toggleTheme } = useTheme();
   const [dbInfo, setDbInfo] = useState(null);
   const [loading, setLoading] = useState('');
+  const [rokarOpening, setRokarOpening] = useState('');
+  const [rokarSaved, setRokarSaved] = useState(false);
+  const [rokarLocked, setRokarLocked] = useState(true); // locked by default; unlocked only for editing
 
   // Confirmation modals
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
@@ -23,7 +27,23 @@ export default function Settings() {
 
   useEffect(() => {
     loadDbInfo();
+    // Load Rokar opening balance from settings
+    window.api.getSetting('rokar_opening_balance').then(val => {
+      if (val && parseFloat(val) > 0) {
+        setRokarOpening(String(val));
+        setRokarLocked(true); // already set — lock it
+      } else {
+        setRokarLocked(false); // never set yet — allow first entry
+      }
+    });
   }, []);
+
+  const saveRokarOpening = async () => {
+    await window.api.setSetting('rokar_opening_balance', parseFloat(rokarOpening || '0'));
+    setRokarSaved(true);
+    setRokarLocked(true); // lock after saving
+    setTimeout(() => setRokarSaved(false), 2500);
+  };
 
   const loadDbInfo = async () => {
     try {
@@ -119,6 +139,104 @@ export default function Settings() {
             {/* Path intentionally hidden from UI */}
           </div>
         )}
+
+        {/* Rokar Khata Opening Balance */}
+        <div className="card" style={{ borderLeft: '3px solid var(--accent)' }}>
+          <h3 style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <MdAccountBalanceWallet style={{ color: 'var(--accent)' }} />
+            Rokar Opening Balance — <span className="urdu">روکڑ ابتدائی بیلنس</span>
+          </h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 14 }}>
+            Enter the cash amount that was already in your cash box (روکڑ کھاتہ) before you started using this system.
+            This is a one-time setup — it becomes the starting point for your Rokar Khata running balance.
+            <br /><span className="urdu" style={{ fontSize: '0.8rem' }}>وہ رقم جو سسٹم شروع کرنے سے پہلے آپ کے کیش باکس میں موجود تھی۔</span>
+          </p>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+            <div className="form-group" style={{ margin: 0, flex: 1 }}>
+              <label>Opening Cash (PKR) — <span className="urdu">ابتدائی نقد</span></label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="e.g. 50000"
+                  value={rokarOpening}
+                  disabled={rokarLocked}
+                  onKeyDown={blockInvalidChars}
+                  onWheel={preventScrollChange}
+                  onChange={e => setRokarOpening(e.target.value)}
+                  style={{
+                    maxWidth: 220,
+                    opacity: rokarLocked ? 0.6 : 1,
+                    cursor: rokarLocked ? 'not-allowed' : 'text',
+                    borderColor: rokarLocked ? 'var(--border)' : 'var(--accent)',
+                    transition: 'all 0.2s',
+                  }}
+                />
+                {rokarLocked ? (
+                  <button
+                    className="btn btn-secondary"
+                    title="Click to edit opening balance"
+                    onClick={() => setRokarLocked(false)}
+                    style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <MdEdit style={{ fontSize: '1rem' }} />
+                    <span style={{ fontSize: '0.82rem' }}>Edit</span>
+                    <MdLock style={{ fontSize: '0.85rem', color: 'var(--accent)', opacity: 0.7 }} />
+                  </button>
+                ) : (
+                  <button
+                    className="btn btn-secondary"
+                    title="Cancel editing"
+                    onClick={async () => {
+                      // Reload original value and re-lock
+                      const val = await window.api.getSetting('rokar_opening_balance');
+                      setRokarOpening(val ? String(val) : '');
+                      setRokarLocked(true);
+                    }}
+                    style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <MdLockOpen style={{ fontSize: '1rem', color: 'var(--red)' }} />
+                    <span style={{ fontSize: '0.82rem', color: 'var(--red)' }}>Cancel</span>
+                  </button>
+                )}
+              </div>
+            </div>
+            {!rokarLocked && (
+              <button
+                className={`btn ${rokarSaved ? 'btn-success' : 'btn-primary'}`}
+                onClick={saveRokarOpening}
+                style={{ marginBottom: 0 }}
+                disabled={!rokarOpening || parseFloat(rokarOpening) < 0}
+              >
+                {rokarSaved ? <><MdCheckCircle /> Saved!</> : <><MdSave /> Save Balance</>}
+              </button>
+            )}
+          </div>
+          {rokarOpening && parseFloat(rokarOpening) > 0 && rokarLocked && (
+            <div style={{
+              marginTop: 10, padding: '8px 12px', borderRadius: 8,
+              background: 'rgba(212,160,23,0.08)', border: '1px solid rgba(212,160,23,0.2)',
+              fontSize: '0.8rem', color: 'var(--accent)',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <MdLock style={{ fontSize: '1rem' }} />
+              Opening Balance set: <strong>PKR {parseFloat(rokarOpening || 0).toLocaleString()}</strong>
+              <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>— Click <MdEdit style={{ verticalAlign: 'middle', fontSize: '0.9rem' }} /> Edit to change</span>
+            </div>
+          )}
+          {!rokarLocked && (
+            <div style={{
+              marginTop: 10, padding: '8px 12px', borderRadius: 8,
+              background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.2)',
+              fontSize: '0.8rem', color: 'var(--red)',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <MdLockOpen style={{ fontSize: '1rem' }} />
+              Editing mode — Enter the correct opening cash and click <strong>Save Balance</strong>.
+            </div>
+          )}
+        </div>
 
         {/* Backup Database */}
         <div className="card">

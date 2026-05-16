@@ -45,11 +45,17 @@ contextBridge.exposeInMainWorld('api', {
   getPayments: (f) => ipcRenderer.invoke('get-payments', f),
   addPayment: (d) => ipcRenderer.invoke('add-payment', d),
   deletePayment: (id) => ipcRenderer.invoke('delete-payment', id),
+  // Expenses (daily kharcha — خرچہ)
+  getExpenses: (f) => ipcRenderer.invoke('get-expenses', f),
+  addExpense: (d) => ipcRenderer.invoke('add-expense', d),
+  updateExpense: (id, d) => ipcRenderer.invoke('update-expense', id, d),
+  deleteExpense: (id) => ipcRenderer.invoke('delete-expense', id),
   // Ledger
   getBuyerLedger: (id) => ipcRenderer.invoke('get-buyer-ledger', id),
   getSupplierLedger: (id) => ipcRenderer.invoke('get-supplier-ledger', id),
   getDaybook: (date) => ipcRenderer.invoke('get-daybook', date),
   getRokar: (date) => ipcRenderer.invoke('get-rokar', date),
+  getRokarCumulative: () => ipcRenderer.invoke('get-rokar-cumulative'),
   // Reports
   getReport: (type, f) => ipcRenderer.invoke('get-report', type, f),
   // Backup & Restore
