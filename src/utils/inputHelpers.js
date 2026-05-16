@@ -17,16 +17,20 @@ export const blockInvalidChars = (e) => {
  * Chrome/Electron will NOT change a readonly input's value on wheel scroll,
  * but the wheel event still propagates normally so the modal/page scrolls.
  * No blur() → no focus-jumps. No preventDefault() → no scroll blocking.
- * After 200 ms of inactivity the readonly flag is removed so typing works again.
+ *
+ * Uses a WeakMap so each input gets its own independent 200 ms debounce timer.
+ * (A shared timer had a bug: scrolling input A then input B would cancel A's
+ *  cleanup, leaving A permanently readonly.)
  */
-let _scrollLockTimer = null;
+const _scrollTimers = new WeakMap();
 export const preventScrollChange = (e) => {
   const input = e.target;
   input.setAttribute('readonly', '');
-  clearTimeout(_scrollLockTimer);
-  _scrollLockTimer = setTimeout(() => {
+  clearTimeout(_scrollTimers.get(input));
+  _scrollTimers.set(input, setTimeout(() => {
     input.removeAttribute('readonly');
-  }, 200);
+    _scrollTimers.delete(input);
+  }, 200));
 };
 
 /**

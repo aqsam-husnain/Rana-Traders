@@ -35,13 +35,14 @@ export default function Expenses() {
   const [filterTo, setFilterTo]       = useState('');
   const [filterCat, setFilterCat]     = useState('');
 
-  // Inline category add state (inside the modal dropdown)
+  // Inline category add state (inside the expense form modal dropdown)
   const [addingCat, setAddingCat]     = useState(false);
   const [newCatName, setNewCatName]   = useState('');
   const newCatRef = useRef(null);
 
-  // Manage Categories modal
+  // Manage Categories modal — uses its own separate state to avoid conflicts
   const [showManageCats, setShowManageCats] = useState(false);
+  const [manageCatName, setManageCatName]   = useState('');
 
   const toast = useToast();
 
@@ -481,7 +482,7 @@ export default function Expenses() {
       {/* ── Manage Categories Modal ── */}
       <Modal
         show={showManageCats}
-        onClose={() => setShowManageCats(false)}
+        onClose={() => { setShowManageCats(false); setManageCatName(''); }}
         title={<><MdLabel style={{ marginRight: 8 }} />Manage Categories — <span className="urdu">زمرے</span></>}
       >
         <div style={{ marginBottom: 16 }}>
@@ -489,39 +490,43 @@ export default function Expenses() {
             Default categories cannot be deleted. Custom ones can be removed anytime.
           </p>
 
-          {/* Add new category inline */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <input
-              type="text"
-              placeholder="New category name..."
-              value={newCatName}
-              onChange={e => setNewCatName(e.target.value)}
-              onKeyDown={async e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  if (!newCatName.trim()) return;
-                  const res = await window.api.addExpenseCategory(newCatName.trim());
+          {/* Add new category */}
+          <div className="form-group" style={{ marginBottom: 16 }}>
+            <label>New Category — <span className="urdu">نیا زمرہ</span></label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                placeholder="Type new category name..."
+                value={manageCatName}
+                onChange={e => setManageCatName(e.target.value)}
+                onKeyDown={async e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (!manageCatName.trim()) return;
+                    const res = await window.api.addExpenseCategory(manageCatName.trim());
+                    if (res?.error) { toast.error(res.error); return; }
+                    setManageCatName('');
+                    loadCategories();
+                    toast.success('Category added!');
+                  }
+                }}
+                style={{ flex: 1 }}
+              />
+              <button
+                className="btn btn-primary"
+                style={{ flexShrink: 0 }}
+                onClick={async () => {
+                  if (!manageCatName.trim()) return;
+                  const res = await window.api.addExpenseCategory(manageCatName.trim());
                   if (res?.error) { toast.error(res.error); return; }
-                  setNewCatName('');
+                  setManageCatName('');
                   loadCategories();
                   toast.success('Category added!');
-                }
-              }}
-              style={{ flex: 1 }}
-            />
-            <button
-              className="btn btn-primary"
-              onClick={async () => {
-                if (!newCatName.trim()) return;
-                const res = await window.api.addExpenseCategory(newCatName.trim());
-                if (res?.error) { toast.error(res.error); return; }
-                setNewCatName('');
-                loadCategories();
-                toast.success('Category added!');
-              }}
-            >
-              <MdAdd /> Add
-            </button>
+                }}
+              >
+                <MdAdd /> Add
+              </button>
+            </div>
           </div>
 
           {/* Category list */}
