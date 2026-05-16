@@ -23,8 +23,6 @@ export default function Modal({ show, onClose, title, children, large }) {
       // Remember what was focused before the modal opened
       previousActiveElement.current = document.activeElement;
 
-      // Ensure the window itself has OS-level focus
-      window.focus();
 
       // Focus the first input — try multiple times with increasing delays
       // to handle cases where window focus hasn't been fully restored yet
@@ -94,7 +92,7 @@ export default function Modal({ show, onClose, title, children, large }) {
   if (!show) return null;
 
   return createPortal(
-    <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-overlay">
       <div
         className={`modal ${large ? 'modal-lg' : ''}`}
         ref={modalRef}
