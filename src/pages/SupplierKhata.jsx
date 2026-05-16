@@ -30,6 +30,8 @@ export default function SupplierKhata() {
   const [customPercent, setCustomPercent] = useState('');
   const [showUnitInput, setShowUnitInput] = useState(false);
   const [newUnit, setNewUnit] = useState('');
+  const [extraExpenses, setExtraExpenses] = useState([]);
+  const [showExpensesPanel, setShowExpensesPanel] = useState(false);
   const [purchForm, setPurchForm] = useState({
     product_id: '', date: todayISO(), total_weight: '', kaat: 0, rate: '', commission: 0,
     bardana: 0, labour: 0, munshiyana: 0, kiraya: 0, others: 0,
@@ -75,7 +77,8 @@ export default function SupplierKhata() {
   // ─── Purchase handlers ───
   const safiWeight = Math.max(0, (parseFloat(purchForm.total_weight) || 0) - (parseFloat(purchForm.kaat) || 0));
   const purchTotal = safiWeight * (parseFloat(purchForm.rate) || 0);
-  const purchNet = purchTotal + (parseFloat(purchForm.commission) || 0) + (parseFloat(purchForm.bardana) || 0) + (parseFloat(purchForm.labour) || 0) + (parseFloat(purchForm.munshiyana) || 0) + (parseFloat(purchForm.kiraya) || 0) + (parseFloat(purchForm.others) || 0);
+  const extraExpensesTotal = extraExpenses.reduce((s, ex) => s + (parseFloat(ex.amount) || 0), 0);
+  const purchNet = purchTotal - (parseFloat(purchForm.commission) || 0) - (parseFloat(purchForm.bardana) || 0) - (parseFloat(purchForm.labour) || 0) - (parseFloat(purchForm.munshiyana) || 0) - (parseFloat(purchForm.kiraya) || 0) - (parseFloat(purchForm.others) || 0) + extraExpensesTotal;
 
   const getDefaultPercent = (pid) => { const p = products.find(x => x.id === parseInt(pid || purchForm.product_id)); return p ? p.commission_rate : 0; };
   const calcCommission = (qty, rate, percent) => ((parseFloat(qty) || 0) * (parseFloat(rate) || 0) * (parseFloat(percent) || 0) / 100).toFixed(2);
@@ -85,14 +88,20 @@ export default function SupplierKhata() {
     setEditingPurchaseId(null);
     setCommissionMode('default'); setCustomPercent('');
     setShowUnitInput(false); setNewUnit('');
+    setExtraExpenses([]); setShowExpensesPanel(false);
     setPurchForm({ product_id: '', date: todayISO(), total_weight: '', kaat: 0, rate: '', commission: 0, bardana: 0, labour: 0, munshiyana: 0, kiraya: 0, others: 0, payment_mode: 'On Account', notes: '', unit: '', amount_paid: 0, payment_status: 'To Pay' });
     setShowPurchaseForm(true);
   };
+
+  const addExtraExpenseRow = () => setExtraExpenses(prev => [...prev, { name: '', amount: '' }]);
+  const updateExtraExpense = (idx, field, val) => setExtraExpenses(prev => prev.map((ex, i) => i === idx ? { ...ex, [field]: val } : ex));
+  const removeExtraExpense = (idx) => setExtraExpenses(prev => prev.filter((_, i) => i !== idx));
 
   const openEditPurchaseForm = async (e) => {
     setEditingPurchaseId(e.purchase_id);
     setCommissionMode(e.commission_type || 'default'); setCustomPercent('');
     setShowUnitInput(false); setNewUnit('');
+    setExtraExpenses(e.extra_expenses ? JSON.parse(e.extra_expenses) : []); setShowExpensesPanel(false);
     setPurchForm({
       product_id: '', date: e.date, total_weight: e.total_weight || e.quantity, kaat: e.kaat || 0,
       rate: e.rate, commission: e.commission || 0,
@@ -157,7 +166,8 @@ export default function SupplierKhata() {
       unit: purchForm.unit || null, commission_type: commissionMode,
       total_weight: parseFloat(purchForm.total_weight) || 0, kaat: parseFloat(purchForm.kaat) || 0,
       munshiyana: parseFloat(purchForm.munshiyana) || 0, kiraya: parseFloat(purchForm.kiraya) || 0,
-      others: parseFloat(purchForm.others) || 0
+      others: parseFloat(purchForm.others) || 0,
+      extra_expenses: extraExpenses.filter(ex => ex.name || ex.amount).length > 0 ? JSON.stringify(extraExpenses.filter(ex => ex.name || ex.amount)) : null
     };
 
     if (editingPurchaseId) {
@@ -382,17 +392,38 @@ export default function SupplierKhata() {
             <div className="form-group"><label>Kiraya — <span className="urdu">کرایہ</span></label><input type="number" step="0.01" value={purchForm.kiraya} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setPurchForm({ ...purchForm, kiraya: e.target.value })} /></div>
             <div className="form-group"><label>Others — <span className="urdu">دیگر</span></label><input type="number" step="0.01" value={purchForm.others} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => setPurchForm({ ...purchForm, others: e.target.value })} /></div>
 
+            {/* Extra Expenses Panel */}
+            {showExpensesPanel && (
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--accent2)', marginBottom: 8, display: 'block' }}>➕ Additional Expenses — <span className="urdu">اضافی اخراجات</span></label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px 36px', gap: 8, fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, padding: '0 4px' }}>
+                    <span>Expense Name — نام</span><span>Amount — رقم</span><span></span>
+                  </div>
+                  {extraExpenses.map((ex, idx) => (
+                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 160px 36px', gap: 8, alignItems: 'center' }}>
+                      <input value={ex.name} onChange={e => updateExtraExpense(idx, 'name', e.target.value)} placeholder="e.g. Toll Tax, Cleaning..." style={{ fontSize: '0.88rem' }} />
+                      <input type="number" step="0.01" value={ex.amount} onKeyDown={blockInvalidChars} onWheel={preventScrollChange} onChange={e => updateExtraExpense(idx, 'amount', e.target.value)} placeholder="0" style={{ fontSize: '0.88rem' }} />
+                      <button type="button" className="btn btn-sm btn-danger" onClick={() => removeExtraExpense(idx)} style={{ minWidth: 36, height: 36 }}><MdClose /></button>
+                    </div>
+                  ))}
+                  <button type="button" className="btn btn-sm btn-secondary" onClick={addExtraExpenseRow} style={{ alignSelf: 'flex-start', fontSize: '0.8rem' }}><MdAdd /> Add Row</button>
+                  {extraExpenses.length > 0 && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Total Extra Expenses: <strong style={{ color: 'var(--green)' }}>+ {extraExpenses.reduce((s, ex) => s + (parseFloat(ex.amount) || 0), 0).toLocaleString()}</strong></div>}
+                </div>
+              </div>
+            )}
+
             {/* Commission with default/custom toggle */}
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>Commission — <span className="urdu">کمیشن</span></span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Commission — <span className="urdu">کمیشن</span></span>
                 <span style={{ display: 'flex', gap: 4 }}>
                   <button type="button" onClick={() => { setCommissionMode('default'); setCustomPercent(''); setPurchForm({ ...purchForm, commission: recalcCommission(safiWeight, purchForm.rate) }); }}
                     style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border)', background: commissionMode === 'default' ? 'var(--accent)' : 'transparent', color: commissionMode === 'default' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 600 }}>Default</button>
                   <button type="button" onClick={() => { setCommissionMode('custom'); const dp = getDefaultPercent(purchForm.product_id); setCustomPercent(dp); setPurchForm({ ...purchForm, commission: calcCommission(safiWeight, purchForm.rate, dp) }); }}
                     style={{ fontSize: '0.65rem', padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border)', background: commissionMode === 'custom' ? 'var(--accent2)' : 'transparent', color: commissionMode === 'custom' ? '#fff' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 600 }}>Custom</button>
                 </span>
-              </label>
+              </div>
               {commissionMode === 'custom' ? (
                 <>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -473,7 +504,11 @@ export default function SupplierKhata() {
             <div className="form-group"><label>Notes — نوٹ</label><input value={purchForm.notes} onChange={e => setPurchForm({ ...purchForm, notes: e.target.value })} /></div>
           </div>
           <div className="totals-bar"><span>Total: <strong>{formatPKR(purchTotal)}</strong></span><span>Net Amount: <strong className="amount" style={{ fontSize: '1.1rem', color: 'var(--accent2)' }}>{formatPKR(purchNet)}</strong></span></div>
-          <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => { setShowPurchaseForm(false); setEditingPurchaseId(null); }}>Cancel</button><button type="submit" className="btn btn-primary">{editingPurchaseId ? 'Update Purchase' : 'Save Purchase'}</button></div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-secondary" onClick={() => { setShowPurchaseForm(false); setEditingPurchaseId(null); }}>Cancel</button>
+            <button type="button" className="btn btn-secondary" onClick={() => { setShowExpensesPanel(p => !p); if (!showExpensesPanel && extraExpenses.length === 0) addExtraExpenseRow(); }} style={{ background: showExpensesPanel ? 'var(--accent2-glow)' : '', borderColor: 'var(--accent2)', color: 'var(--accent2)' }}>➕ Add Expenses</button>
+            <button type="submit" className="btn btn-primary">{editingPurchaseId ? 'Update Purchase' : 'Save Purchase'}</button>
+          </div>
         </form>
       </Modal>
 

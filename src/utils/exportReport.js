@@ -478,6 +478,227 @@ export async function exportDayBookPDF({ title, inflowRows, outflowRows, inflowC
 }
 
 /**
+ * Export Rokar Khata as a split T-Account PDF — جمع (Cash In) left, خرچ (Cash Out) right
+ */
+export async function exportRokarPDF({ title, inflowRows, outflowRows, inflowColumns, outflowColumns, inflowTotal, outflowTotal, openingBalance, closingBalance, summary, dateRange, fileName }) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  registerUrduFont(doc);
+
+  const pageWidth  = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const halfWidth  = (pageWidth - 28 - 6) / 2;
+
+  // ── Header ──
+  doc.setFillColor(6, 6, 8);
+  doc.rect(0, 0, pageWidth, 32, 'F');
+
+  try {
+    const logoDataUrl = await getLogoBase64(160);
+    if (logoDataUrl) doc.addImage(logoDataUrl, 'PNG', 4, 2, 28, 28);
+  } catch (e) {}
+
+  const textStartX = 34;
+  const titleParts = title.split('—');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(255, 255, 255);
+  doc.text(titleParts[0].trim(), textStartX, 13);
+
+  if (titleParts[1] && hasUrdu(titleParts[1])) {
+    doc.setFont('Amiri', 'normal');
+    doc.setFontSize(14);
+    doc.setTextColor(180, 200, 220);
+    doc.text(titleParts[1].trim(), pageWidth - 14, 13, { align: 'right' });
+  }
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(148, 163, 184);
+  doc.text('Rana Traders — Commission Shop', textStartX, 22);
+  doc.setFont('Amiri', 'normal');
+  doc.setFontSize(10);
+  doc.text('رانا ٹریڈرز', pageWidth - 14, 22, { align: 'right' });
+
+  if (dateRange) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(200, 200, 200);
+    doc.text(dateRange, pageWidth - 14, 28, { align: 'right' });
+  }
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Generated: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`, textStartX, 28);
+
+  let yPos = 38;
+
+  // ── Summary cards ──
+  if (summary && summary.length > 0) {
+    const cardWidth = (pageWidth - 28 - (summary.length - 1) * 6) / summary.length;
+    summary.forEach((item, i) => {
+      const x = 14 + i * (cardWidth + 6);
+      doc.setFillColor(20, 20, 24);
+      doc.roundedRect(x, yPos, cardWidth, 18, 2, 2, 'F');
+      if (hasUrdu(item.label)) { doc.setFont('Amiri', 'normal'); } else { doc.setFont('helvetica', 'normal'); }
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text(item.label, x + 4, yPos + 6);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(item.color || 241, item.color ? 245 : 245, item.color ? 249 : 249);
+      doc.setTextColor(241, 245, 249);
+      doc.text(item.value, x + 4, yPos + 14);
+    });
+    yPos += 26;
+  }
+
+  const leftX  = 14;
+  const rightX = 14 + halfWidth + 6;
+
+  // ── Section Headers ──
+  // Left — جمع (Cash In) green
+  doc.setFillColor(20, 60, 40);
+  doc.roundedRect(leftX, yPos, halfWidth, 10, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(52, 211, 153);
+  doc.text('CASH IN — جمع (Walk-in Sales & Receipts)', leftX + 4, yPos + 7);
+  doc.setFont('Amiri', 'normal');
+  doc.setFontSize(8);
+  doc.text('نقد آمدن', leftX + halfWidth - 4, yPos + 7, { align: 'right' });
+
+  // Right — خرچ (Cash Out) red
+  doc.setFillColor(60, 20, 20);
+  doc.roundedRect(rightX, yPos, halfWidth, 10, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(248, 113, 113);
+  doc.text('CASH OUT — خرچ (Purchases, Payments & Expenses)', rightX + 4, yPos + 7);
+  doc.setFont('Amiri', 'normal');
+  doc.setFontSize(8);
+  doc.text('نقد اخراجات', rightX + halfWidth - 4, yPos + 7, { align: 'right' });
+
+  yPos += 14;
+
+  const tableStyles = {
+    fontSize: 7.5, cellPadding: 2.5,
+    lineColor: [30, 41, 59], lineWidth: 0.1,
+    textColor: [71, 85, 105], font: 'helvetica', overflow: 'linebreak',
+  };
+
+  // ── Left Table (جمع) ──
+  const leftRows = inflowRows.length > 0 ? inflowRows : [['', '', '', 'No cash inflow entries']];
+  autoTable(doc, {
+    startY: yPos,
+    head: [inflowColumns],
+    body: leftRows,
+    styles: { ...tableStyles },
+    headStyles: { fillColor: [15, 40, 30], textColor: [52, 211, 153], fontSize: 7, fontStyle: 'bold', cellPadding: 3 },
+    alternateRowStyles: { fillColor: [248, 253, 250] },
+    margin: { left: leftX, right: pageWidth - leftX - halfWidth },
+    tableWidth: halfWidth,
+    didParseCell: (data) => {
+      const cellText = getCellText(data);
+      if (hasUrdu(cellText)) { data.cell.styles.font = 'Amiri'; data.cell.styles.fontSize = 8.5; }
+      if (data.column.index === inflowColumns.length - 1 && data.section === 'body') {
+        data.cell.styles.halign = 'right';
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.textColor = [16, 150, 100];
+      }
+    },
+  });
+
+  const leftFinalY = doc.lastAutoTable.finalY;
+
+  // ── Right Table (خرچ) ──
+  const rightRows = outflowRows.length > 0 ? outflowRows : [['', '', '', 'No cash outflow entries']];
+  autoTable(doc, {
+    startY: yPos,
+    head: [outflowColumns],
+    body: rightRows,
+    styles: { ...tableStyles },
+    headStyles: { fillColor: [50, 15, 15], textColor: [248, 113, 113], fontSize: 7, fontStyle: 'bold', cellPadding: 3 },
+    alternateRowStyles: { fillColor: [253, 248, 248] },
+    margin: { left: rightX, right: 14 },
+    tableWidth: halfWidth,
+    didParseCell: (data) => {
+      const cellText = getCellText(data);
+      if (hasUrdu(cellText)) { data.cell.styles.font = 'Amiri'; data.cell.styles.fontSize = 8.5; }
+      if (data.column.index === outflowColumns.length - 1 && data.section === 'body') {
+        data.cell.styles.halign = 'right';
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.textColor = [200, 50, 50];
+      }
+    },
+  });
+
+  const rightFinalY = doc.lastAutoTable.finalY;
+  const maxY = Math.max(leftFinalY, rightFinalY);
+
+  // ── Vertical Divider ──
+  const dividerX = leftX + halfWidth + 3;
+  doc.setDrawColor(212, 160, 23);
+  doc.setLineWidth(0.6);
+  doc.line(dividerX, yPos - 14, dividerX, maxY + 2);
+
+  // ── Footer Totals ──
+  const footerY = maxY + 4;
+
+  doc.setFillColor(20, 60, 40);
+  doc.roundedRect(leftX, footerY, halfWidth, 10, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(52, 211, 153);
+  doc.text('Total Cash In — کل جمع:', leftX + 4, footerY + 7);
+  doc.setFontSize(10);
+  doc.text(inflowTotal, leftX + halfWidth - 4, footerY + 7, { align: 'right' });
+
+  doc.setFillColor(60, 20, 20);
+  doc.roundedRect(rightX, footerY, halfWidth, 10, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(248, 113, 113);
+  doc.text('Total Cash Out — کل خرچ:', rightX + 4, footerY + 7);
+  doc.setFontSize(10);
+  doc.text(outflowTotal, rightX + halfWidth - 4, footerY + 7, { align: 'right' });
+
+  // ── Closing Balance Bar ──
+  const closingY = footerY + 14;
+  const isPositive = parseFloat(String(closingBalance).replace(/[^0-9.-]/g, '')) >= 0;
+  doc.setFillColor(isPositive ? 15 : 50, isPositive ? 45 : 15, isPositive ? 30 : 15);
+  doc.roundedRect(leftX, closingY, pageWidth - 28, 12, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(isPositive ? 52 : 248, isPositive ? 211 : 113, isPositive ? 153 : 113);
+  doc.text('Opening:  ' + openingBalance + '   +   Cash In:  ' + inflowTotal + '   −   Cash Out:  ' + outflowTotal, leftX + 4, closingY + 8);
+  doc.setFontSize(11);
+  doc.text('= ' + closingBalance, pageWidth - 14 - 4, closingY + 8, { align: 'right' });
+
+  // ── Page Footer ──
+  doc.setFillColor(248, 250, 252);
+  doc.rect(0, pageHeight - 10, pageWidth, 10, 'F');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(148, 163, 184);
+  doc.text('Rana Traders', 14, pageHeight - 4);
+  doc.setFont('Amiri', 'normal');
+  doc.text('رانا ٹریڈرز', 40, pageHeight - 4);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Page ${doc.internal.getNumberOfPages()}`, pageWidth - 14, pageHeight - 4, { align: 'right' });
+
+  const pdfOutput = doc.output('arraybuffer');
+  const base64 = arrayBufferToBase64(pdfOutput);
+  const baseName = fileName ? fileName.replace(/\.pdf$/i, '') : 'RokarKhata';
+  const result = await window.api.saveFileDialog(
+    `${baseName}.pdf`,
+    [{ name: 'PDF Files', extensions: ['pdf'] }],
+    base64
+  );
+  return result?.success || false;
+}
+
+
+/**
  * Auto-detect which columns contain numbers and right-align them
  */
 function generateColumnStyles(columns, rows) {

@@ -1,21 +1,22 @@
 import React, { useState } from 'react';
 import { formatPKR, formatNumber, formatDate, todayISO } from '../utils/formatters';
-import { exportToPDF, exportToXLSX, exportToCSV, fileTimestamp } from '../utils/exportReport';
+import { exportToPDF, exportToXLSX, exportToCSV, exportRokarPDF, fileTimestamp } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import { useToast } from '../components/Toast';
-import { MdAccountBalance, MdBalance, MdInventory } from 'react-icons/md';
+import { MdAccountBalance, MdBalance, MdInventory, MdAccountBalanceWallet, MdTrendingDown, MdTrendingUp, MdMoneyOff } from 'react-icons/md';
 
 const reportTypes = [
-  { id: 'daily-sales', name: 'Daily Sale Report', urdu: 'یومیہ فروخت رپورٹ', needsDate: true },
-  { id: 'daily-purchases', name: 'Daily Purchase Report', urdu: 'یومیہ خریداری رپورٹ', needsDate: true },
-  { id: 'commission', name: 'Commission Report', urdu: 'آڑت رپورٹ', needsDate: true },
-  { id: 'stock', name: 'Stock Report', urdu: 'اسٹاک رپورٹ', needsDate: false },
-  { id: 'buyer-outstanding', name: 'Buyer Outstanding', urdu: 'خریدار واجبات', needsDate: false },
-  { id: 'supplier-outstanding', name: 'Supplier Outstanding', urdu: 'سپلائر واجبات', needsDate: false },
-  { id: 'profit-loss', name: 'Profit & Loss', urdu: 'نفع و نقصان', needsDate: false },
-  { id: 'stock-valuation', name: 'Daily Stock Valuation', urdu: 'یومیہ اسٹاک قدر', needsDate: true, custom: true },
-  { id: 'balance-sheet', name: 'Balance Sheet', urdu: 'بیلنس شیٹ', needsAsOn: true, custom: true },
-  { id: 'trial-balance', name: 'Trial Balance', urdu: 'ٹرائل بیلنس', needsAsOn: true, custom: true },
+  { id: 'daily-sales',         name: 'Daily Sale Report',       urdu: 'یومیہ فروخت رپورٹ',   needsDate: true },
+  { id: 'daily-purchases',     name: 'Daily Purchase Report',   urdu: 'یومیہ خریداری رپورٹ', needsDate: true },
+  { id: 'commission',          name: 'Commission Report',       urdu: 'آڑت رپورٹ',       needsDate: true },
+  { id: 'rokar-khata',         name: 'Rokar Khata Report',      urdu: 'روکڑ کھاتہ رپورٹ',  needsDate: true, custom: true },
+  { id: 'stock',               name: 'Stock Report',            urdu: 'اسٹاک رپورٹ',        needsDate: false },
+  { id: 'buyer-outstanding',   name: 'Buyer Outstanding',       urdu: 'خریدار واجبات',     needsDate: false },
+  { id: 'supplier-outstanding',name: 'Supplier Outstanding',    urdu: 'سپلائر واجبات',     needsDate: false },
+  { id: 'profit-loss',         name: 'Profit & Loss',           urdu: 'نفع و نقصان',       needsDate: false },
+  { id: 'stock-valuation',     name: 'Daily Stock Valuation',   urdu: 'یومیہ اسٹاک قدر',   needsDate: true, custom: true },
+  { id: 'balance-sheet',       name: 'Balance Sheet',           urdu: 'بیلنس شیٹ',         needsAsOn: true, custom: true },
+  { id: 'trial-balance',       name: 'Trial Balance',           urdu: 'ٹرائل بیلنس',       needsAsOn: true, custom: true },
 ];
 
 // Column configs for each report type — clean labels, proper alignment
@@ -129,25 +130,84 @@ export default function Reports() {
 
   const generate = async () => {
     if (!selectedReport) return;
-    const result = await window.api.getReport(selectedReport, { dateFrom, dateTo });
-    setData(result);
+    if (selectedReport === 'rokar-khata') {
+      const result = await window.api.getRokarReport({ dateFrom, dateTo });
+      setData(result);
+    } else {
+      const result = await window.api.getReport(selectedReport, { dateFrom, dateTo });
+      setData(result);
+    }
   };
 
   const currentType = reportTypes.find(r => r.id === selectedReport);
   const config = reportColumns[selectedReport];
+  const isRokar = selectedReport === 'rokar-khata';
 
   const handleExport = async (format) => {
     if (!data || !currentType) return;
     const ts = fileTimestamp();
     const isArray = Array.isArray(data);
-    const isCustom = ['balance-sheet', 'trial-balance'].includes(selectedReport);
     const rows = isArray && config ? config.extract(data) : [];
     const summary = isArray && config?.summary ? config.summary(data) : [];
     const dateRange = currentType.needsDate ? `${formatDate(dateFrom)} — ${formatDate(dateTo)}` : '';
     const fileBase = `${currentType.name.replace(/[^a-zA-Z0-9]/g, '_')}_${ts}`;
     const title = `${currentType.name} — ${currentType.urdu}`;
-
     let exportRows = rows, exportCols = config?.columns || [], exportSummary = summary, highlightSet = null;
+
+    // Build custom export for Rokar Khata
+    if (isRokar && data?.entries) {
+      const jama   = data.entries.filter(e => e.type === 'Walk-in Sale'     || e.type === 'Cash Received');
+      const kharch = data.entries.filter(e => e.type === 'Walk-in Purchase' || e.type === 'Cash Paid' || e.type === 'Expense');
+      const inflowCols  = ['#', 'Date', 'Type', 'Party / Detail', 'Amount'];
+      const outflowCols = ['#', 'Date', 'Type', 'Party / Detail', 'Amount'];
+      const inflowR  = jama.map((e, i)   => [i + 1,               formatDate(e.date), e.type, e.party_name || e.product_name || '—', formatPKR(e.amount)]);
+      const outflowR = kharch.map((e, i) => [i + 1,               formatDate(e.date), e.type, e.party_name || e.product_name || '—', formatPKR(e.amount)]);
+
+      if (format === 'pdf') {
+        const saved = await exportRokarPDF({
+          title: 'Rokar Khata Report — روکڑ کھاتہ رپورٹ',
+          inflowColumns: inflowCols,
+          outflowColumns: outflowCols,
+          inflowRows: inflowR,
+          outflowRows: outflowR,
+          inflowTotal:  formatPKR(data.periodTotalIn),
+          outflowTotal: formatPKR(data.periodTotalOut),
+          openingBalance: formatPKR(data.periodOpeningBalance),
+          closingBalance: formatPKR(data.periodClosingBalance),
+          summary: [
+            { label: 'ابتدائی بیلنس — Opening', value: formatPKR(data.periodOpeningBalance) },
+            { label: 'کل جمع — Cash In',         value: formatPKR(data.periodTotalIn) },
+            { label: 'کل خرچ — Cash Out',        value: formatPKR(data.periodTotalOut) },
+            { label: 'اختتامی بیلنس — Closing',  value: formatPKR(data.periodClosingBalance) },
+          ],
+          dateRange: `${formatDate(dateFrom)} — ${formatDate(dateTo)}`,
+          fileName: `RokarKhata_Report_${ts}.pdf`,
+        });
+        if (saved) toast.success('File exported successfully!');
+      } else {
+        const cols = ['#', 'Date', 'Flow', 'Type', 'Party / Detail', 'Amount'];
+        const allRows = [
+          ...inflowR.map(r  => [r[0], r[1], 'جمع (In)',   r[2], r[3], r[4]]),
+          ...outflowR.map(r => [r[0], r[1], 'خرچ (Out)', r[2], r[3], r[4]]),
+        ];
+        const expData = {
+          title: 'Rokar Khata Report — روکڑ کھاتہ رپورٹ',
+          columns: cols, rows: allRows,
+          summary: [
+            { label: 'Opening Balance', value: formatPKR(data.periodOpeningBalance) },
+            { label: 'Total Cash In',   value: formatPKR(data.periodTotalIn) },
+            { label: 'Total Cash Out',  value: formatPKR(data.periodTotalOut) },
+            { label: 'Closing Balance', value: formatPKR(data.periodClosingBalance) },
+          ],
+          dateRange: `${formatDate(dateFrom)} — ${formatDate(dateTo)}`,
+        };
+        let saved = false;
+        if (format === 'xlsx') saved = await exportToXLSX({ ...expData, fileName: `RokarKhata_Report_${ts}.xlsx` });
+        else if (format === 'csv') saved = await exportToCSV({ ...expData, fileName: `RokarKhata_Report_${ts}.csv` });
+        if (saved) toast.success('File exported successfully!');
+      }
+      return;
+    }
 
     // Build custom export rows for non-array reports
     if (selectedReport === 'profit-loss' && !isArray) {
@@ -226,6 +286,173 @@ export default function Reports() {
     else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `${fileBase}.xlsx` });
     else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `${fileBase}.csv` });
     if (saved) toast.success('File exported successfully!');
+  };
+
+  const renderRokarReport = () => {
+    if (!data || !data.entries) return null;
+
+    const getTypeBadge = (type) => {
+      if (type === 'Walk-in Sale')     return { label: 'Walk-in Sale',     color: '#34d399', bg: 'rgba(52,211,153,0.1)',   border: 'rgba(52,211,153,0.25)' };
+      if (type === 'Cash Received')    return { label: 'Cash Received',    color: '#60a5fa', bg: 'rgba(96,165,250,0.1)',   border: 'rgba(96,165,250,0.25)' };
+      if (type === 'Walk-in Purchase') return { label: 'Walk-in Purchase', color: '#f87171', bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.25)' };
+      if (type === 'Cash Paid')        return { label: 'Cash Paid',        color: '#fb923c', bg: 'rgba(251,146,60,0.1)',  border: 'rgba(251,146,60,0.25)' };
+      if (type === 'Expense')          return { label: 'Expense',          color: '#a78bfa', bg: 'rgba(167,139,250,0.1)', border: 'rgba(167,139,250,0.25)' };
+      return { label: type, color: 'var(--text-muted)', bg: 'transparent', border: 'var(--border)' };
+    };
+
+    const jama   = data.entries.filter(e => e.type === 'Walk-in Sale'     || e.type === 'Cash Received');
+    const kharch = data.entries.filter(e => e.type === 'Walk-in Purchase' || e.type === 'Cash Paid' || e.type === 'Expense');
+    const balance = data.periodClosingBalance;
+
+    const entryRow = (e, i) => {
+      const b = getTypeBadge(e.type);
+      return (
+        <tr key={i}>
+          <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{i + 1}</td>
+          <td style={{ whiteSpace: 'nowrap', fontSize: '0.78rem' }}>{formatDate(e.date)}</td>
+          <td>
+            <span style={{ display: 'inline-block', padding: '2px 7px', borderRadius: 5, fontSize: '0.65rem', fontWeight: 600, color: b.color, background: b.bg, border: `1px solid ${b.border}` }}>
+              {b.label}
+            </span>
+          </td>
+          <td style={{ fontSize: '0.82rem' }}>
+            {e.party_name || '—'}
+            {e.product_name && e.product_name !== e.party_name && (
+              <><br /><span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{e.product_name}</span></>
+            )}
+          </td>
+          <td className="amount" style={{ textAlign: 'right', fontWeight: 700 }}>{formatPKR(e.amount)}</td>
+        </tr>
+      );
+    };
+
+    return (
+      <>
+        {/* Summary Cards */}
+        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: 'rgba(212,160,23,0.12)', color: 'var(--accent)' }}><MdAccountBalanceWallet /></div>
+            <div className="stat-info">
+              <h3>ابتدائی بیلنس — Opening</h3>
+              <div className="stat-value" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{formatPKR(data.periodOpeningBalance)}</div>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon green"><MdTrendingDown /></div>
+            <div className="stat-info">
+              <h3>کل جمع — Cash In</h3>
+              <div className="stat-value" style={{ color: 'var(--green)', fontSize: '1rem' }}>{formatPKR(data.periodTotalIn)}</div>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon red"><MdTrendingUp /></div>
+            <div className="stat-info">
+              <h3>کل خرچ — Cash Out</h3>
+              <div className="stat-value" style={{ color: 'var(--red)', fontSize: '1rem' }}>{formatPKR(data.periodTotalOut)}</div>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: balance >= 0 ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)', color: balance >= 0 ? 'var(--green)' : 'var(--red)' }}>💰</div>
+            <div className="stat-info">
+              <h3>اختتامی بیلنس — Closing</h3>
+              <div className="stat-value" style={{ color: balance >= 0 ? 'var(--green)' : 'var(--red)', fontSize: '1rem' }}>{formatPKR(Math.abs(balance))}{balance < 0 && <span style={{ fontSize: '0.7rem', marginLeft: 4 }}>(Deficit)</span>}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* T-Account Table */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 0, marginBottom: 20 }}>
+          {/* ── جمع (Cash In) ── */}
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '12px 16px', background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.15)', borderRight: 'none', borderRadius: '12px 0 0 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <MdTrendingDown style={{ color: 'var(--green)', fontSize: '1.1rem' }} />
+              <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--green)' }}>جمع — Cash In</span>
+              <span style={{ marginLeft: 'auto', fontWeight: 700, color: 'var(--green)' }}>{formatPKR(data.periodTotalIn)}</span>
+            </div>
+            <div style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid rgba(52,211,153,0.15)', borderRight: 'none', borderTop: 'none', borderRadius: '0 0 0 12px', overflow: 'auto' }}>
+              <table className="data-table" style={{ marginBottom: 0 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 30 }}>#</th>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Party / Detail</th>
+                    <th style={{ textAlign: 'right' }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jama.length > 0 ? jama.map((e, i) => entryRow(e, i)) : (
+                    <tr><td colSpan={5} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>No cash inflow — کوئی جمع نہیں</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div style={{ width: 3, background: 'linear-gradient(to bottom, rgba(212,160,23,0.05), rgba(212,160,23,0.5), rgba(212,160,23,0.05))', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%) rotate(45deg)', width: 10, height: 10, background: 'var(--accent)', borderRadius: 2 }} />
+          </div>
+
+          {/* ── خرچ (Cash Out) ── */}
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '12px 16px', background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.15)', borderLeft: 'none', borderRadius: '0 12px 0 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <MdTrendingUp style={{ color: 'var(--red)', fontSize: '1.1rem' }} />
+              <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--red)' }}>خرچ — Cash Out</span>
+              <span style={{ marginLeft: 'auto', fontWeight: 700, color: 'var(--red)' }}>{formatPKR(data.periodTotalOut)}</span>
+            </div>
+            <div style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid rgba(248,113,113,0.15)', borderLeft: 'none', borderTop: 'none', borderRadius: '0 0 12px 0', overflow: 'auto' }}>
+              <table className="data-table" style={{ marginBottom: 0 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 30 }}>#</th>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Party / Detail</th>
+                    <th style={{ textAlign: 'right' }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {kharch.length > 0 ? kharch.map((e, i) => entryRow(e, i)) : (
+                    <tr><td colSpan={5} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>No cash outflow — کوئی خرچ نہیں</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Closing Balance Banner */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 22px', borderRadius: 14,
+          background: balance >= 0 ? 'linear-gradient(135deg, rgba(52,211,153,0.1), rgba(52,211,153,0.04))' : 'linear-gradient(135deg, rgba(248,113,113,0.1), rgba(248,113,113,0.04))',
+          border: `1px solid ${balance >= 0 ? 'rgba(52,211,153,0.25)' : 'rgba(248,113,113,0.25)'}`,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: '1.8rem' }}>💰</span>
+            <div>
+              <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', marginBottom: 2 }}>اختتامی بیلنس — Period Closing Balance</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: balance >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                {balance < 0 ? '−' : ''}{formatPKR(Math.abs(balance))}
+              </div>
+            </div>
+          </div>
+          <div style={{ textAlign: 'right', fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 2 }}>
+            <div>Opening: <strong style={{ color: 'var(--accent)' }}>{formatPKR(data.periodOpeningBalance)}</strong></div>
+            <div>+ Cash In: <strong style={{ color: 'var(--green)' }}>{formatPKR(data.periodTotalIn)}</strong></div>
+            <div>− Cash Out: <strong style={{ color: 'var(--red)' }}>{formatPKR(data.periodTotalOut)}</strong></div>
+          </div>
+        </div>
+
+        {data.entries.length === 0 && (
+          <div className="empty-state" style={{ padding: '40px 20px', marginTop: 16 }}>
+            <p>No cash transactions in this date range</p>
+            <p style={{ fontSize: '0.8rem', marginTop: 4 }}>Try adjusting the date range</p>
+          </div>
+        )}
+      </>
+    );
   };
 
   const renderProfitLoss = () => {
@@ -431,7 +658,7 @@ export default function Reports() {
 
   const hasData = data !== null;
   const isCustomObj = ['profit-loss', 'balance-sheet', 'trial-balance'].includes(selectedReport);
-  const canExport = hasData && (isCustomObj ? !Array.isArray(data) && data : Array.isArray(data) && data.length > 0);
+  const canExport = hasData && (isRokar ? !!data?.entries : (isCustomObj ? !Array.isArray(data) && data : Array.isArray(data) && data.length > 0));
 
   return (
     <div className="fade-in">
@@ -461,12 +688,13 @@ export default function Reports() {
       </div>
 
       {/* Report output */}
-      {selectedReport === 'profit-loss' && renderProfitLoss()}
+      {selectedReport === 'profit-loss'   && renderProfitLoss()}
       {selectedReport === 'balance-sheet' && renderBalanceSheet()}
       {selectedReport === 'trial-balance' && renderTrialBalance()}
-      {!isCustomObj && renderTableReport()}
+      {isRokar                            && renderRokarReport()}
+      {!isCustomObj && !isRokar           && renderTableReport()}
 
-      {hasData && Array.isArray(data) && data.length === 0 && !isCustomObj && (
+      {hasData && Array.isArray(data) && data.length === 0 && !isCustomObj && !isRokar && (
         <div className="empty-state" style={{ padding: '40px 20px' }}>
           <p style={{ fontSize: '0.9rem' }}>No data found for the selected criteria</p>
           <p style={{ fontSize: '0.8rem', marginTop: 4 }}>Try adjusting the date range or report type</p>

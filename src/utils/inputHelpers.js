@@ -11,9 +11,22 @@ export const blockInvalidChars = (e) => {
   }
 };
 
-/** Prevent scroll wheel from changing number input value (attach to onWheel) */
+/** Prevent scroll wheel from changing number input value (attach to onWheel).
+ *
+ * Strategy: temporarily set the input as `readonly` while the user is scrolling.
+ * Chrome/Electron will NOT change a readonly input's value on wheel scroll,
+ * but the wheel event still propagates normally so the modal/page scrolls.
+ * No blur() → no focus-jumps. No preventDefault() → no scroll blocking.
+ * After 200 ms of inactivity the readonly flag is removed so typing works again.
+ */
+let _scrollLockTimer = null;
 export const preventScrollChange = (e) => {
-  e.target.blur();
+  const input = e.target;
+  input.setAttribute('readonly', '');
+  clearTimeout(_scrollLockTimer);
+  _scrollLockTimer = setTimeout(() => {
+    input.removeAttribute('readonly');
+  }, 200);
 };
 
 /**

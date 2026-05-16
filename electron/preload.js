@@ -50,12 +50,17 @@ contextBridge.exposeInMainWorld('api', {
   addExpense: (d) => ipcRenderer.invoke('add-expense', d),
   updateExpense: (id, d) => ipcRenderer.invoke('update-expense', id, d),
   deleteExpense: (id) => ipcRenderer.invoke('delete-expense', id),
+  // Expense categories
+  getExpenseCategories: () => ipcRenderer.invoke('get-expense-categories'),
+  addExpenseCategory: (name) => ipcRenderer.invoke('add-expense-category', name),
+  deleteExpenseCategory: (id) => ipcRenderer.invoke('delete-expense-category', id),
   // Ledger
   getBuyerLedger: (id) => ipcRenderer.invoke('get-buyer-ledger', id),
   getSupplierLedger: (id) => ipcRenderer.invoke('get-supplier-ledger', id),
   getDaybook: (date) => ipcRenderer.invoke('get-daybook', date),
   getRokar: (date) => ipcRenderer.invoke('get-rokar', date),
   getRokarCumulative: () => ipcRenderer.invoke('get-rokar-cumulative'),
+  getRokarReport: (f) => ipcRenderer.invoke('get-rokar-report', f),
   // Reports
   getReport: (type, f) => ipcRenderer.invoke('get-report', type, f),
   // Backup & Restore

@@ -31,16 +31,11 @@ export function formatNumber(num) {
 
 export function formatDate(dateStr) {
   if (!dateStr) return '';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  // Check if the value has a time component (not midnight or date-only)
-  const hasTime = dateStr.includes('T') || dateStr.includes(' ');
-  const dateOptions = { day: '2-digit', month: 'short', year: 'numeric' };
-  if (hasTime) {
-    return d.toLocaleDateString('en-GB', dateOptions) + ', ' +
-      d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-  }
-  return d.toLocaleDateString('en-GB', dateOptions);
+  // Always use only the date portion (strip any time component)
+  const datePart = typeof dateStr === 'string' ? dateStr.split('T')[0].split(' ')[0] : dateStr;
+  const d = new Date(datePart + 'T00:00:00');
+  if (isNaN(d.getTime())) return String(dateStr).split('T')[0];
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 /**

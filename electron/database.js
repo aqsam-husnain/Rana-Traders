@@ -90,11 +90,17 @@ function createTables() {
     CREATE TABLE IF NOT EXISTS expenses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       date TEXT NOT NULL,
-      description TEXT NOT NULL,
-      description_urdu TEXT,
+      description TEXT DEFAULT '',
+      description_urdu TEXT DEFAULT '',
       category TEXT DEFAULT 'General',
       amount REAL NOT NULL,
       notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS expense_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      is_default INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
@@ -132,8 +138,18 @@ function runMigrations() {
   try { db.run('ALTER TABLE purchases ADD COLUMN kiraya REAL DEFAULT 0'); } catch (e) { /* already exists */ }
   try { db.run('ALTER TABLE purchases ADD COLUMN others REAL DEFAULT 0'); } catch (e) { /* already exists */ }
 
+  // Extra expenses JSON column (custom named expenses subtracted from net)
+  try { db.run('ALTER TABLE sales ADD COLUMN extra_expenses TEXT'); } catch (e) { /* already exists */ }
+  try { db.run('ALTER TABLE purchases ADD COLUMN extra_expenses TEXT'); } catch (e) { /* already exists */ }
+
   // Seed default unit KG if not present
   db.run("INSERT OR IGNORE INTO units (name) VALUES ('KG')");
+
+  // Seed default expense categories
+  const defaultCats = ['General', 'Chaye-Pani', 'Labour', 'Transport', 'Repair', 'Utility', 'Office', 'Other'];
+  defaultCats.forEach(name => {
+    try { db.run("INSERT OR IGNORE INTO expense_categories (name, is_default) VALUES (?, 1)", [name]); } catch (e) { /* ignore */ }
+  });
 }
 function saveDb() {
   const data = db.export();

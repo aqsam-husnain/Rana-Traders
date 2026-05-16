@@ -107,15 +107,15 @@ function registerIpcHandlers() {
   // Sales
   ipcMain.handle('get-sales', (_e, f) => { let q = "SELECT s.*,b.name as buyer_name,b.name_urdu as buyer_name_urdu,p.name as product_name,p.name_urdu as product_name_urdu,p.unit as product_unit,COALESCE(s.unit,p.unit) as display_unit FROM sales s LEFT JOIN buyers b ON s.buyer_id=b.id LEFT JOIN products p ON s.product_id=p.id"; const pp = [], conds = []; if (f?.dateFrom) { conds.push('substr(s.date,1,10)>=?'); pp.push(f.dateFrom); } if (f?.dateTo) { conds.push('substr(s.date,1,10)<=?'); pp.push(f.dateTo); } if (conds.length) q += ' WHERE ' + conds.join(' AND '); q += ' ORDER BY s.date DESC,s.id DESC'; return queryAll(q, pp); });
   ipcMain.handle('get-sale', (_e, id) => queryOne('SELECT * FROM sales WHERE id=?', [id]));
-  ipcMain.handle('add-sale', (_e, d) => runSql('INSERT INTO sales (buyer_id,product_id,date,quantity,rate,total,commission,bardana,labour,net_amount,payment_mode,notes,amount_paid,payment_status,unit,commission_type,total_weight,kaat,munshiyana,kiraya,others) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [d.buyer_id, d.product_id, d.date, d.quantity, d.rate, d.total, d.commission, d.bardana, d.labour, d.net_amount, d.payment_mode, d.notes, d.amount_paid || 0, d.payment_status || 'To Receive', d.unit || null, d.commission_type || 'default', d.total_weight || 0, d.kaat || 0, d.munshiyana || 0, d.kiraya || 0, d.others || 0]));
-  ipcMain.handle('update-sale', (_e, id, d) => { runSql('UPDATE sales SET buyer_id=?,product_id=?,date=?,quantity=?,rate=?,total=?,commission=?,bardana=?,labour=?,net_amount=?,payment_mode=?,notes=?,amount_paid=?,payment_status=?,unit=?,commission_type=?,total_weight=?,kaat=?,munshiyana=?,kiraya=?,others=? WHERE id=?', [d.buyer_id, d.product_id, d.date, d.quantity, d.rate, d.total, d.commission, d.bardana, d.labour, d.net_amount, d.payment_mode, d.notes, d.amount_paid || 0, d.payment_status || 'To Receive', d.unit || null, d.commission_type || 'default', d.total_weight || 0, d.kaat || 0, d.munshiyana || 0, d.kiraya || 0, d.others || 0, id]); return { success: true }; });
+  ipcMain.handle('add-sale', (_e, d) => runSql('INSERT INTO sales (buyer_id,product_id,date,quantity,rate,total,commission,bardana,labour,net_amount,payment_mode,notes,amount_paid,payment_status,unit,commission_type,total_weight,kaat,munshiyana,kiraya,others,extra_expenses) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [d.buyer_id, d.product_id, d.date, d.quantity, d.rate, d.total, d.commission, d.bardana, d.labour, d.net_amount, d.payment_mode, d.notes, d.amount_paid || 0, d.payment_status || 'To Receive', d.unit || null, d.commission_type || 'default', d.total_weight || 0, d.kaat || 0, d.munshiyana || 0, d.kiraya || 0, d.others || 0, d.extra_expenses || null]));
+  ipcMain.handle('update-sale', (_e, id, d) => { runSql('UPDATE sales SET buyer_id=?,product_id=?,date=?,quantity=?,rate=?,total=?,commission=?,bardana=?,labour=?,net_amount=?,payment_mode=?,notes=?,amount_paid=?,payment_status=?,unit=?,commission_type=?,total_weight=?,kaat=?,munshiyana=?,kiraya=?,others=?,extra_expenses=? WHERE id=?', [d.buyer_id, d.product_id, d.date, d.quantity, d.rate, d.total, d.commission, d.bardana, d.labour, d.net_amount, d.payment_mode, d.notes, d.amount_paid || 0, d.payment_status || 'To Receive', d.unit || null, d.commission_type || 'default', d.total_weight || 0, d.kaat || 0, d.munshiyana || 0, d.kiraya || 0, d.others || 0, d.extra_expenses || null, id]); return { success: true }; });
   ipcMain.handle('delete-sale', (_e, id) => { runSql('DELETE FROM sales WHERE id=?', [id]); return { success: true }; });
 
   // Purchases
   ipcMain.handle('get-purchases', (_e, f) => { let q = "SELECT pu.*,sp.name as supplier_name,sp.name_urdu as supplier_name_urdu,p.name as product_name,p.name_urdu as product_name_urdu,p.unit as product_unit,COALESCE(pu.unit,p.unit) as display_unit FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id LEFT JOIN products p ON pu.product_id=p.id"; const pp = [], conds = []; if (f?.dateFrom) { conds.push('substr(pu.date,1,10)>=?'); pp.push(f.dateFrom); } if (f?.dateTo) { conds.push('substr(pu.date,1,10)<=?'); pp.push(f.dateTo); } if (conds.length) q += ' WHERE ' + conds.join(' AND '); q += ' ORDER BY pu.date DESC,pu.id DESC'; return queryAll(q, pp); });
   ipcMain.handle('get-purchase', (_e, id) => queryOne('SELECT * FROM purchases WHERE id=?', [id]));
-  ipcMain.handle('add-purchase', (_e, d) => runSql('INSERT INTO purchases (supplier_id,product_id,date,quantity,rate,total,commission,bardana,labour,net_amount,payment_mode,notes,amount_paid,payment_status,unit,commission_type,total_weight,kaat,munshiyana,kiraya,others) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [d.supplier_id, d.product_id, d.date, d.quantity, d.rate, d.total, d.commission, d.bardana, d.labour, d.net_amount, d.payment_mode, d.notes, d.amount_paid || 0, d.payment_status || 'To Pay', d.unit || null, d.commission_type || 'default', d.total_weight || 0, d.kaat || 0, d.munshiyana || 0, d.kiraya || 0, d.others || 0]));
-  ipcMain.handle('update-purchase', (_e, id, d) => { runSql('UPDATE purchases SET supplier_id=?,product_id=?,date=?,quantity=?,rate=?,total=?,commission=?,bardana=?,labour=?,net_amount=?,payment_mode=?,notes=?,amount_paid=?,payment_status=?,unit=?,commission_type=?,total_weight=?,kaat=?,munshiyana=?,kiraya=?,others=? WHERE id=?', [d.supplier_id, d.product_id, d.date, d.quantity, d.rate, d.total, d.commission, d.bardana, d.labour, d.net_amount, d.payment_mode, d.notes, d.amount_paid || 0, d.payment_status || 'To Pay', d.unit || null, d.commission_type || 'default', d.total_weight || 0, d.kaat || 0, d.munshiyana || 0, d.kiraya || 0, d.others || 0, id]); return { success: true }; });
+  ipcMain.handle('add-purchase', (_e, d) => runSql('INSERT INTO purchases (supplier_id,product_id,date,quantity,rate,total,commission,bardana,labour,net_amount,payment_mode,notes,amount_paid,payment_status,unit,commission_type,total_weight,kaat,munshiyana,kiraya,others,extra_expenses) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [d.supplier_id, d.product_id, d.date, d.quantity, d.rate, d.total, d.commission, d.bardana, d.labour, d.net_amount, d.payment_mode, d.notes, d.amount_paid || 0, d.payment_status || 'To Pay', d.unit || null, d.commission_type || 'default', d.total_weight || 0, d.kaat || 0, d.munshiyana || 0, d.kiraya || 0, d.others || 0, d.extra_expenses || null]));
+  ipcMain.handle('update-purchase', (_e, id, d) => { runSql('UPDATE purchases SET supplier_id=?,product_id=?,date=?,quantity=?,rate=?,total=?,commission=?,bardana=?,labour=?,net_amount=?,payment_mode=?,notes=?,amount_paid=?,payment_status=?,unit=?,commission_type=?,total_weight=?,kaat=?,munshiyana=?,kiraya=?,others=?,extra_expenses=? WHERE id=?', [d.supplier_id, d.product_id, d.date, d.quantity, d.rate, d.total, d.commission, d.bardana, d.labour, d.net_amount, d.payment_mode, d.notes, d.amount_paid || 0, d.payment_status || 'To Pay', d.unit || null, d.commission_type || 'default', d.total_weight || 0, d.kaat || 0, d.munshiyana || 0, d.kiraya || 0, d.others || 0, d.extra_expenses || null, id]); return { success: true }; });
   ipcMain.handle('delete-purchase', (_e, id) => { runSql('DELETE FROM purchases WHERE id=?', [id]); return { success: true }; });
 
   // Payments
@@ -136,19 +136,33 @@ function registerIpcHandlers() {
   });
   ipcMain.handle('add-expense', (_e, d) => runSql(
     'INSERT INTO expenses (date,description,description_urdu,category,amount,notes) VALUES (?,?,?,?,?,?)',
-    [d.date, d.description, d.description_urdu || '', d.category || 'General', d.amount, d.notes || '']
+    [d.date, d.description || '', d.description_urdu || '', d.category || 'General', d.amount, d.notes || '']
   ));
   ipcMain.handle('update-expense', (_e, id, d) => {
     runSql('UPDATE expenses SET date=?,description=?,description_urdu=?,category=?,amount=?,notes=? WHERE id=?',
-      [d.date, d.description, d.description_urdu || '', d.category || 'General', d.amount, d.notes || '', id]);
+      [d.date, d.description || '', d.description_urdu || '', d.category || 'General', d.amount, d.notes || '', id]);
     return { success: true };
   });
   ipcMain.handle('delete-expense', (_e, id) => { runSql('DELETE FROM expenses WHERE id=?', [id]); return { success: true }; });
 
+  // Expense Categories — user-managed + default
+  ipcMain.handle('get-expense-categories', () => queryAll('SELECT * FROM expense_categories ORDER BY is_default DESC, name ASC'));
+  ipcMain.handle('add-expense-category', (_e, name) => {
+    try { return runSql('INSERT INTO expense_categories (name, is_default) VALUES (?, 0)', [name.trim()]); }
+    catch (e) { return { error: 'Category already exists' }; }
+  });
+  ipcMain.handle('delete-expense-category', (_e, id) => {
+    // Don't allow deleting default categories
+    const cat = queryOne('SELECT is_default FROM expense_categories WHERE id=?', [id]);
+    if (cat?.is_default) return { error: 'Cannot delete default categories' };
+    runSql('DELETE FROM expense_categories WHERE id=?', [id]);
+    return { success: true };
+  });
+
   // Ledger
   ipcMain.handle('get-buyer-ledger', (_e, bid) => {
     const buyer = queryOne('SELECT * FROM buyers WHERE id=?', [bid]);
-    const sales = queryAll("SELECT s.id as sale_id,s.date,'Sale' as type,p.name as product_name,p.name_urdu as product_name_urdu,s.quantity,s.rate,s.total,s.commission,s.bardana,s.labour,s.net_amount,s.net_amount as debit,0 as credit,s.notes,COALESCE(s.unit,p.unit) as display_unit,s.amount_paid,s.payment_status,s.payment_mode,s.commission_type,s.total_weight,s.kaat,s.munshiyana,s.kiraya,s.others FROM sales s LEFT JOIN products p ON s.product_id=p.id WHERE s.buyer_id=? ORDER BY s.date,s.id", [bid]);
+    const sales = queryAll("SELECT s.id as sale_id,s.date,'Sale' as type,p.name as product_name,p.name_urdu as product_name_urdu,s.quantity,s.rate,s.total,s.commission,s.bardana,s.labour,s.net_amount,s.net_amount as debit,0 as credit,s.notes,COALESCE(s.unit,p.unit) as display_unit,s.amount_paid,s.payment_status,s.payment_mode,s.commission_type,s.total_weight,s.kaat,s.munshiyana,s.kiraya,s.others,s.extra_expenses FROM sales s LEFT JOIN products p ON s.product_id=p.id WHERE s.buyer_id=? ORDER BY s.date,s.id", [bid]);
     // Payments received at sale time (amount_paid from sales table)
     const salePayments = queryAll("SELECT NULL as sale_id,NULL as payment_id,s.date,'Payment' as type,p.name as product_name,p.name_urdu as product_name_urdu,0 as quantity,0 as rate,0 as total,0 as commission,0 as bardana,0 as labour,0 as net_amount,0 as debit,s.amount_paid as credit,COALESCE(s.notes,'') || ' (received with sale)' as notes,'' as display_unit,0 as amount_paid,'' as payment_status,s.payment_mode,'' as commission_type FROM sales s LEFT JOIN products p ON s.product_id=p.id WHERE s.buyer_id=? AND s.amount_paid>0 ORDER BY s.date,s.id", [bid]);
     // Separate standalone payments from payments table
@@ -157,7 +171,7 @@ function registerIpcHandlers() {
   });
   ipcMain.handle('get-supplier-ledger', (_e, sid) => {
     const supplier = queryOne('SELECT * FROM suppliers WHERE id=?', [sid]);
-    const purchases = queryAll("SELECT pu.id as purchase_id,pu.date,'Purchase' as type,p.name as product_name,p.name_urdu as product_name_urdu,pu.quantity,pu.rate,pu.total,pu.commission,pu.bardana,pu.labour,pu.net_amount,pu.net_amount as debit,0 as credit,pu.notes,COALESCE(pu.unit,p.unit) as display_unit,pu.amount_paid,pu.payment_status,pu.payment_mode,pu.commission_type,pu.total_weight,pu.kaat,pu.munshiyana,pu.kiraya,pu.others FROM purchases pu LEFT JOIN products p ON pu.product_id=p.id WHERE pu.supplier_id=? ORDER BY pu.date,pu.id", [sid]);
+    const purchases = queryAll("SELECT pu.id as purchase_id,pu.date,'Purchase' as type,p.name as product_name,p.name_urdu as product_name_urdu,pu.quantity,pu.rate,pu.total,pu.commission,pu.bardana,pu.labour,pu.net_amount,pu.net_amount as debit,0 as credit,pu.notes,COALESCE(pu.unit,p.unit) as display_unit,pu.amount_paid,pu.payment_status,pu.payment_mode,pu.commission_type,pu.total_weight,pu.kaat,pu.munshiyana,pu.kiraya,pu.others,pu.extra_expenses FROM purchases pu LEFT JOIN products p ON pu.product_id=p.id WHERE pu.supplier_id=? ORDER BY pu.date,pu.id", [sid]);
     // Payments made at purchase time (amount_paid from purchases table)
     const purchasePayments = queryAll("SELECT NULL as purchase_id,NULL as payment_id,pu.date,'Payment' as type,p.name as product_name,p.name_urdu as product_name_urdu,0 as quantity,0 as rate,0 as total,0 as commission,0 as bardana,0 as labour,0 as net_amount,0 as debit,pu.amount_paid as credit,COALESCE(pu.notes,'') || ' (paid with purchase)' as notes,'' as display_unit,0 as amount_paid,'' as payment_status,pu.payment_mode,'' as commission_type FROM purchases pu LEFT JOIN products p ON pu.product_id=p.id WHERE pu.supplier_id=? AND pu.amount_paid>0 ORDER BY pu.date,pu.id", [sid]);
     // Separate standalone payments from payments table
@@ -251,7 +265,7 @@ function registerIpcHandlers() {
     const dailyExpenses = queryAll(
       `SELECT 'Expense' as type, e.date, e.amount,
               e.category as party_name, '' as party_name_urdu,
-              e.description as product_name, e.description_urdu as product_name_urdu
+              COALESCE(NULLIF(e.notes,''), e.category) as product_name, '' as product_name_urdu
        FROM expenses e
        WHERE substr(e.date,1,10)=?`, [date]);
 
@@ -279,6 +293,92 @@ function registerIpcHandlers() {
     const balance  = openingBalance + totalIn - totalOut;
 
     return { openingBalance, totalIn, totalOut, balance };
+  });
+
+  // Rokar Khata Report — date-range filtered with opening balance + period totals
+  ipcMain.handle('get-rokar-report', (_e, f) => {
+    const df = f?.dateFrom || '1900-01-01';
+    const dt = f?.dateTo   || '2999-12-31';
+
+    const openingBalance = parseFloat(queryOne("SELECT value FROM settings WHERE key='rokar_opening_balance'")?.value || '0');
+
+    // Cash movements BEFORE the date range = opening balance for the period
+    const prevWalkInSales     = queryOne(`SELECT COALESCE(SUM(s.net_amount),0) as t FROM sales s LEFT JOIN buyers b ON s.buyer_id=b.id WHERE b.type='Walk-in' AND substr(s.date,1,10)<?`, [df])?.t || 0;
+    const prevRegCashSales    = queryOne(`SELECT COALESCE(SUM(s.amount_paid),0) as t FROM sales s LEFT JOIN buyers b ON s.buyer_id=b.id WHERE b.type='Regular' AND s.amount_paid>0 AND substr(s.date,1,10)<?`, [df])?.t || 0;
+    const prevCashPayIn       = queryOne(`SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='Received' AND mode='Cash' AND substr(date,1,10)<?`, [df])?.t || 0;
+    const prevWalkInPurch     = queryOne(`SELECT COALESCE(SUM(pu.net_amount),0) as t FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id WHERE sp.type='Walk-in' AND substr(pu.date,1,10)<?`, [df])?.t || 0;
+    const prevRegCashPurch    = queryOne(`SELECT COALESCE(SUM(pu.amount_paid),0) as t FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id WHERE sp.type='Regular' AND pu.amount_paid>0 AND substr(pu.date,1,10)<?`, [df])?.t || 0;
+    const prevCashPayOut      = queryOne(`SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE type='Paid' AND mode='Cash' AND substr(date,1,10)<?`, [df])?.t || 0;
+    const prevExpenses        = queryOne(`SELECT COALESCE(SUM(amount),0) as t FROM expenses WHERE substr(date,1,10)<?`, [df])?.t || 0;
+    const periodOpeningBalance = openingBalance + (prevWalkInSales + prevRegCashSales + prevCashPayIn) - (prevWalkInPurch + prevRegCashPurch + prevCashPayOut + prevExpenses);
+
+    // Entries WITHIN the date range
+    const walkInSales = queryAll(
+      `SELECT 'Walk-in Sale' as type, s.date, s.net_amount as amount,
+              b.name as party_name, b.name_urdu as party_name_urdu,
+              p.name as product_name, p.name_urdu as product_name_urdu
+       FROM sales s LEFT JOIN buyers b ON s.buyer_id=b.id LEFT JOIN products p ON s.product_id=p.id
+       WHERE b.type='Walk-in' AND substr(s.date,1,10)>=? AND substr(s.date,1,10)<=?
+       ORDER BY s.date`, [df, dt]);
+
+    const regCashSales = queryAll(
+      `SELECT 'Cash Received' as type, s.date, s.amount_paid as amount,
+              b.name as party_name, b.name_urdu as party_name_urdu,
+              p.name as product_name, p.name_urdu as product_name_urdu
+       FROM sales s LEFT JOIN buyers b ON s.buyer_id=b.id LEFT JOIN products p ON s.product_id=p.id
+       WHERE b.type='Regular' AND s.amount_paid>0 AND substr(s.date,1,10)>=? AND substr(s.date,1,10)<=?
+       ORDER BY s.date`, [df, dt]);
+
+    const walkInPurch = queryAll(
+      `SELECT 'Walk-in Purchase' as type, pu.date, pu.net_amount as amount,
+              sp.name as party_name, sp.name_urdu as party_name_urdu,
+              p.name as product_name, p.name_urdu as product_name_urdu
+       FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id LEFT JOIN products p ON pu.product_id=p.id
+       WHERE sp.type='Walk-in' AND substr(pu.date,1,10)>=? AND substr(pu.date,1,10)<=?
+       ORDER BY pu.date`, [df, dt]);
+
+    const regCashPurch = queryAll(
+      `SELECT 'Cash Paid' as type, pu.date, pu.amount_paid as amount,
+              sp.name as party_name, sp.name_urdu as party_name_urdu,
+              p.name as product_name, p.name_urdu as product_name_urdu
+       FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id LEFT JOIN products p ON pu.product_id=p.id
+       WHERE sp.type='Regular' AND pu.amount_paid>0 AND substr(pu.date,1,10)>=? AND substr(pu.date,1,10)<=?
+       ORDER BY pu.date`, [df, dt]);
+
+    const cashPayments = queryAll(
+      `SELECT CASE WHEN type='Received' THEN 'Cash Received' ELSE 'Cash Paid' END as type,
+              pay.date, pay.amount,
+              CASE WHEN pay.party_type='Buyer' THEN (SELECT name FROM buyers WHERE id=pay.party_id)
+                   ELSE (SELECT name FROM suppliers WHERE id=pay.party_id) END as party_name,
+              '' as party_name_urdu, '' as product_name, '' as product_name_urdu
+       FROM payments pay
+       WHERE pay.mode='Cash' AND substr(pay.date,1,10)>=? AND substr(pay.date,1,10)<=?
+       ORDER BY pay.date`, [df, dt]);
+
+    const expenses = queryAll(
+      `SELECT 'Expense' as type, e.date, e.amount,
+              e.category as party_name, '' as party_name_urdu,
+              COALESCE(NULLIF(e.notes,''), e.category) as product_name, '' as product_name_urdu
+       FROM expenses e WHERE substr(e.date,1,10)>=? AND substr(e.date,1,10)<=?
+       ORDER BY e.date`, [df, dt]);
+
+    const allEntries = [...walkInSales, ...regCashSales, ...walkInPurch, ...regCashPurch, ...cashPayments, ...expenses]
+      .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+    const jama  = allEntries.filter(e => e.type === 'Walk-in Sale'     || e.type === 'Cash Received');
+    const kharch = allEntries.filter(e => e.type === 'Walk-in Purchase' || e.type === 'Cash Paid' || e.type === 'Expense');
+    const periodTotalIn  = jama.reduce((s, e)  => s + (e.amount || 0), 0);
+    const periodTotalOut = kharch.reduce((s, e) => s + (e.amount || 0), 0);
+    const periodClosingBalance = periodOpeningBalance + periodTotalIn - periodTotalOut;
+
+    return {
+      entries: allEntries,
+      periodOpeningBalance,
+      periodTotalIn,
+      periodTotalOut,
+      periodClosingBalance,
+      openingBalance,  // system-wide opening balance
+    };
   });
 
   // Reports
