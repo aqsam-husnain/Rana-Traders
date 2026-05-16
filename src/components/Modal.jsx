@@ -11,9 +11,9 @@ export default function Modal({ show, onClose, title, children, large }) {
     if (!modalRef.current) return;
     const firstInput = modalRef.current.querySelector('input:not([readonly]), select, textarea, button[type="submit"]');
     if (firstInput) {
-      firstInput.focus();
+      firstInput.focus({ preventScroll: true });
     } else {
-      modalRef.current.focus();
+      modalRef.current.focus({ preventScroll: true });
     }
   }, []);
 
@@ -78,13 +78,16 @@ export default function Modal({ show, onClose, title, children, large }) {
   // Safety net: if the user clicks anywhere inside the modal and focus is
   // somehow lost (stuck on body), force focus into the modal's first input
   const handleModalClick = useCallback((e) => {
-    // Don't steal focus from elements that are already focusable
+    // Don't steal focus from elements that are already focusable.
+    // Use closest() so clicking a child of a focusable element (e.g. a <span>
+    // inside a <button>, or a wrapper div of SearchableSelect) is also treated
+    // as a focusable click and doesn't accidentally jump to the first input.
     const target = e.target;
-    const isFocusable = target.matches(
+    const isWithinFocusable = target.closest(
       'input, select, textarea, button, a, [tabindex], [contenteditable]'
     );
-    if (!isFocusable) {
-      // Focus is on a non-interactive element — push it to the first input
+    if (!isWithinFocusable) {
+      // Focus is on a truly non-interactive element — push it to the first input
       requestAnimationFrame(focusFirstInput);
     }
   }, [focusFirstInput]);
