@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MdPeople, MdStore, MdPointOfSale, MdShoppingCart, MdAccountBalanceWallet, MdCallReceived, MdInventory } from 'react-icons/md';
-import { formatPKR, formatNumber, formatDate } from '../utils/formatters';
+import { formatPKR, formatCompact, formatNumber, formatDate } from '../utils/formatters';
 
 const UNIT_OPTIONS = [
   { name: 'KG',   kg: 1 },
@@ -57,13 +57,14 @@ export default function Dashboard() {
     );
   };
 
+  // For monetary cards, store raw number so we can apply formatCompact
   const cards = [
-    { label: 'Active Buyers', urdu: 'فعال خریدار', value: stats?.activeBuyers || 0, icon: MdPeople, color: 'indigo' },
-    { label: 'Active Suppliers', urdu: 'فعال سپلائرز', value: stats?.activeSuppliers || 0, icon: MdStore, color: 'blue' },
-    { label: "Today's Sale", urdu: 'آج کی فروخت', value: formatPKR(stats?.todaySale), icon: MdPointOfSale, color: 'green' },
-    { label: "Today's Purchase", urdu: 'آج کی خریداری', value: formatPKR(stats?.todayPurchase), icon: MdShoppingCart, color: 'amber' },
-    { label: 'Total Payable', urdu: 'کل واجب الادا', value: formatPKR(stats?.totalPayable), icon: MdAccountBalanceWallet, color: 'red' },
-    { label: 'Total Receivable', urdu: 'کل وصولی', value: formatPKR(stats?.totalReceivable), icon: MdCallReceived, color: 'green' },
+    { label: 'Active Buyers',    urdu: 'فعال خریدار',    value: stats?.activeBuyers || 0,      icon: MdPeople,               color: 'indigo', isMoney: false },
+    { label: 'Active Suppliers', urdu: 'فعال سپلائرز',   value: stats?.activeSuppliers || 0,   icon: MdStore,                color: 'blue',   isMoney: false },
+    { label: "Today's Sale",     urdu: 'آج کی فروخت',    value: stats?.todaySale || 0,          icon: MdPointOfSale,          color: 'green',  isMoney: true  },
+    { label: "Today's Purchase", urdu: 'آج کی خریداری', value: stats?.todayPurchase || 0,      icon: MdShoppingCart,         color: 'amber',  isMoney: true  },
+    { label: 'Total Payable',    urdu: 'کل واجب الادا',  value: stats?.totalPayable || 0,       icon: MdAccountBalanceWallet, color: 'red',    isMoney: true  },
+    { label: 'Total Receivable', urdu: 'کل وصولی',       value: stats?.totalReceivable || 0,    icon: MdCallReceived,         color: 'green',  isMoney: true  },
   ];
 
   return (
@@ -78,7 +79,21 @@ export default function Dashboard() {
             <div className={`stat-icon ${c.color}`}><c.icon /></div>
             <div className="stat-info">
               <h3>{c.label}</h3>
-              <div className="stat-value">{c.value}</div>
+              {c.isMoney ? (() => {
+                const { compact, exact, isLarge } = formatCompact(c.value);
+                return (
+                  <div className="stat-value">
+                    {compact}
+                    {isLarge && exact && (
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 400, marginTop: 3, letterSpacing: 0 }}>
+                        {exact}
+                      </div>
+                    )}
+                  </div>
+                );
+              })() : (
+                <div className="stat-value">{c.value}</div>
+              )}
             </div>
           </div>
         ))}

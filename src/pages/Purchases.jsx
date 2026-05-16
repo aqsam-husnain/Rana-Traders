@@ -112,8 +112,8 @@ export default function Purchases() {
     if (partyType === 'Walk-in') { const result = await window.api.addSupplier({ name: walkInName || 'Walk-in Supplier', name_urdu: '', type: 'Walk-in', phone: '', address: '', cnic: '', opening_balance: 0, status: 'Active' }); supplierId = result.lastInsertRowid; }
     else { supplierId = parseInt(form.supplier_id); if (!supplierId) return toast.error('Please select a supplier — سپلائر منتخب کریں'); }
 
-    const amountPaid = parseFloat(form.amount_paid) || 0;
-    const paymentStatus = updatePaymentStatus(amountPaid);
+    const amountPaid = partyType === 'Walk-in' ? net : (parseFloat(form.amount_paid) || 0);
+    const paymentStatus = partyType === 'Walk-in' ? 'Paid' : updatePaymentStatus(amountPaid);
     const payload = {
       supplier_id: supplierId, product_id: parseInt(form.product_id), date: form.date,
       quantity: qty, rate: parseFloat(form.rate), total,
@@ -281,7 +281,7 @@ export default function Purchases() {
                   onClick={() => setForm({ ...form, payment_status: 'Partial', amount_paid: form.amount_paid || '' })}
                   style={{ fontSize: '0.8rem' }}>Pay Now — ابھی ادائیگی</button>
               </div>
-              {(form.payment_status === 'Partial' || form.payment_status === 'Paid') && (
+              {(form.payment_status === 'Partial' || form.payment_status === 'Paid') && partyType !== 'Walk-in' && (
                 <>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
                     <input type="number" step="0.01" value={form.amount_paid}
@@ -316,9 +316,14 @@ export default function Purchases() {
                   </div>
                 </>
               )}
-              {form.payment_status === 'To Pay' && (
+              {form.payment_status === 'To Pay' && partyType !== 'Walk-in' && (
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>
                   ادھار — No payment now, amount added to supplier's outstanding balance
+                </div>
+              )}
+              {partyType === 'Walk-in' && (
+                <div style={{ fontSize: '0.82rem', fontWeight: 600, marginTop: 6, padding: '10px 14px', borderRadius: 10, background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.2)', color: '#a78bfa' }}>
+                  💵 Walk-in — نقد فوری ادائیگی — پوری رقم Rokar Khata سے خرچ ہو گی
                 </div>
               )}
             </div>

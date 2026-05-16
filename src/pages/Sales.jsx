@@ -18,7 +18,7 @@ export default function Sales() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [availableStock, setAvailableStock] = useState(null);
-  const [stockError, setStockError] = useState('');
+  const [stockWarning, setStockWarning] = useState('');
   const [commissionMode, setCommissionMode] = useState('default');
   const [customPercent, setCustomPercent] = useState('');
   const [showUnitInput, setShowUnitInput] = useState(false);
@@ -53,18 +53,18 @@ export default function Sales() {
   const recalcCommission = (qty, rate, pid) => calcCommission(qty, rate, getDefaultPercent(pid));
 
   const checkStock = async (productId) => {
-    if (!productId) { setAvailableStock(null); setStockError(''); return; }
+    if (!productId) { setAvailableStock(null); setStockWarning(''); return; }
     const stock = await window.api.getProductStock(parseInt(productId));
     setAvailableStock(stock);
-    if (stock <= 0) setStockError(`Out of stock! Available: 0`);
-    else setStockError('');
+    setStockWarning(''); // reset on product change; weight validation will set it if needed
   };
 
   const validateSafiWeight = (tw, k) => {
     const safi = Math.max(0, (parseFloat(tw) || 0) - (parseFloat(k) || 0));
-    if (availableStock !== null && safi > availableStock) setStockError(`Not enough stock! Available: ${formatNumber(availableStock)}`);
-    else if (availableStock !== null && availableStock <= 0) setStockError(`Out of stock! Available: 0`);
-    else setStockError('');
+    if (availableStock !== null && safi > availableStock)
+      setStockWarning(`Selling beyond stock — Available: ${formatNumber(availableStock)}, Entering: ${formatNumber(safi)}`);
+    else
+      setStockWarning('');
   };
 
   const switchPartyType = (type) => {
@@ -93,7 +93,7 @@ export default function Sales() {
     setPartyType('Regular'); setWalkInName(''); setCommissionMode('default'); setCustomPercent('');
     setShowUnitInput(false); setNewUnit('');
     setForm({ buyer_id: '', product_id: '', date: todayISO(), total_weight: '', kaat: 0, rate: '', commission: 0, bardana: 0, labour: 0, munshiyana: 0, kiraya: 0, others: 0, payment_mode: 'On Account', notes: '', unit: 'KG', amount_paid: 0, payment_status: 'To Receive' });
-    setAvailableStock(null); setStockError('');
+    setAvailableStock(null); setStockWarning('');
     setShowForm(true);
   };
 
@@ -143,14 +143,7 @@ export default function Sales() {
     if (!form.product_id) return toast.error('Please select a product — جنس منتخب کریں');
     if (qty <= 0) return toast.error('Safi Weight must be greater than 0 — صافی وزن صفر سے زیادہ ہونا چاہیے');
 
-    // Stock check: when editing, add back the original qty to available stock
-    let currentStock = await window.api.getProductStock(parseInt(form.product_id));
-    if (editingId) {
-      const orig = await window.api.getSale(editingId);
-      if (orig && orig.product_id === parseInt(form.product_id)) currentStock += orig.quantity;
-    }
-    if (currentStock <= 0 && !editingId) return toast.error('Cannot save sale — this product is out of stock!');
-    if (qty > currentStock) return toast.error(`Not enough stock! Available: ${formatNumber(currentStock)}, Requested: ${formatNumber(qty)}`);
+    // No hard stock restriction — overselling is allowed and will result in negative stock (handled via Stock Overview)
 
     let buyerId;
     if (partyType === 'Walk-in') {
@@ -265,8 +258,7 @@ export default function Sales() {
                 {products.filter(p => p.status === 'Active').map(p => <option key={p.id} value={p.id}>{p.name} — {p.name_urdu}</option>)}
               </select>
               {availableStock !== null && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, fontSize: '0.78rem', fontWeight: 600, color: availableStock > 0 ? 'var(--green)' : 'var(--red)' }}>
-                  {availableStock <= 0 && <MdWarning style={{ fontSize: '0.9rem' }} />}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, fontSize: '0.78rem', fontWeight: 600, color: 'var(--green)' }}>
                   Available: {formatNumber(availableStock)} {products.find(p => p.id === parseInt(form.product_id))?.unit || ''}
                 </div>
               )}
@@ -299,9 +291,17 @@ export default function Sales() {
               <input type="number" step="0.01" required value={form.total_weight}
                 onKeyDown={blockInvalidChars} onWheel={preventScrollChange}
                 onChange={e => { const tw = e.target.value; validateSafiWeight(tw, form.kaat); const safi = Math.max(0, (parseFloat(tw) || 0) - (parseFloat(form.kaat) || 0)); const comm = commissionMode === 'default' ? recalcCommission(safi, form.rate) : calcCommission(safi, form.rate, customPercent); setForm({ ...form, total_weight: tw, commission: comm }); }}
-                style={stockError ? { borderColor: 'var(--red)', boxShadow: '0 0 0 3px var(--red-glow)' } : {}}
+                style={stockWarning ? { borderColor: '#f59e0b', boxShadow: '0 0 0 3px rgba(245,158,11,0.18)' } : {}}
               />
-              {stockError && <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: '0.75rem', color: 'var(--red)', fontWeight: 600 }}><MdWarning style={{ fontSize: '0.85rem' }} /> {stockError}</div>}
+              {stockWarning && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 6, padding: '8px 10px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 8 }}>
+                  <MdWarning style={{ fontSize: '1rem', color: '#f59e0b', flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: 700 }}>Overselling Notice — اسٹاک سے زیادہ</div>
+                    <div style={{ fontSize: '0.72rem', color: '#b45309', marginTop: 2 }}>{stockWarning}. This will result in negative stock.</div>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="form-group">
               <label>Kaat — <span className="urdu">کاٹ</span></label>
@@ -422,7 +422,7 @@ export default function Sales() {
           <div className="totals-bar"><span>Total: <strong>{formatPKR(total)}</strong></span><span>Net Amount: <strong className="amount positive" style={{ fontSize: '1.1rem' }}>{formatPKR(net)}</strong></span></div>
           <div className="modal-footer">
             <button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={!!stockError}>{editingId ? 'Update Sale' : 'Save Sale'}</button>
+            <button type="submit" className="btn btn-primary">{editingId ? 'Update Sale' : 'Save Sale'}</button>
           </div>
         </form>
       </Modal>

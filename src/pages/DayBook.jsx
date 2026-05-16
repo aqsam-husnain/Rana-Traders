@@ -8,25 +8,34 @@ import { useToast } from '../components/Toast';
 export default function DayBook() {
   const [date, setDate] = useState(todayDateOnly());
   const [entries, setEntries] = useState([]);
+  const [rokarEntries, setRokarEntries] = useState([]);
+  const [activeTab, setActiveTab] = useState('roznamcha');
   const toast = useToast();
   const dateInputRef = React.useRef(null);
 
-  useEffect(() => { window.api.getDaybook(date).then(setEntries); }, [date]);
+  useEffect(() => {
+    window.api.getDaybook(date).then(setEntries);
+    window.api.getRokar(date).then(setRokarEntries);
+  }, [date]);
 
-  // Sort entries by time for proper chronological display
+  // ── Roznamcha data ──
   const sortedEntries = [...entries].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-
-  // Split entries into inflow (Credit) and outflow (Debit)
   const inflowEntries = sortedEntries.filter(e => e.type === 'Sale' || e.type === 'Payment In');
   const outflowEntries = sortedEntries.filter(e => e.type === 'Purchase' || e.type === 'Payment Out');
-
-  // Category totals
   const totalSale = sortedEntries.filter(e => e.type === 'Sale').reduce((s, e) => s + e.amount, 0);
   const totalPurchase = sortedEntries.filter(e => e.type === 'Purchase').reduce((s, e) => s + e.amount, 0);
   const totalPaymentIn = sortedEntries.filter(e => e.type === 'Payment In').reduce((s, e) => s + e.amount, 0);
   const totalPaymentOut = sortedEntries.filter(e => e.type === 'Payment Out').reduce((s, e) => s + e.amount, 0);
   const totalIn = totalSale + totalPaymentIn;
   const totalOut = totalPurchase + totalPaymentOut;
+
+  // ── Rokar Khata data ──
+  const sortedRokar = [...rokarEntries].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const rokarJama  = sortedRokar.filter(e => e.type === 'Walk-in Sale' || e.type === 'Cash Received' || e.type === 'Payment In');
+  const rokarKharch = sortedRokar.filter(e => e.type === 'Walk-in Purchase' || e.type === 'Cash Paid' || e.type === 'Payment Out');
+  const totalRokarJama  = rokarJama.reduce((s, e) => s + (e.amount || 0), 0);
+  const totalRokarKharch = rokarKharch.reduce((s, e) => s + (e.amount || 0), 0);
+  const rokarBalance = totalRokarJama - totalRokarKharch;
 
   // Date navigation helpers
   const changeDay = (offset) => {
@@ -105,7 +114,7 @@ export default function DayBook() {
     return '—';
   };
 
-  // Type badge color helper
+  // Type badge color helper (Roznamcha)
   const getTypeBadge = (type) => {
     if (type === 'Sale') return { label: 'Sale', urdu: 'فروخت', color: 'var(--green)', bg: 'rgba(52,211,153,0.1)', border: 'rgba(52,211,153,0.2)' };
     if (type === 'Payment In') return { label: 'Payment In', urdu: 'وصولی', color: '#4fc3f7', bg: 'rgba(79,195,247,0.1)', border: 'rgba(79,195,247,0.2)' };
@@ -114,11 +123,44 @@ export default function DayBook() {
     return {};
   };
 
+  // Type badge color helper (Rokar Khata)
+  const getRokarBadge = (type) => {
+    if (type === 'Walk-in Sale') return { label: 'Walk-in نقد', color: '#a78bfa', bg: 'rgba(167,139,250,0.1)', border: 'rgba(167,139,250,0.2)' };
+    if (type === 'Cash Received') return { label: 'وصولی نقد', color: 'var(--green)', bg: 'rgba(52,211,153,0.1)', border: 'rgba(52,211,153,0.2)' };
+    if (type === 'Payment In') return { label: 'ادائیگی وصول', color: '#4fc3f7', bg: 'rgba(79,195,247,0.1)', border: 'rgba(79,195,247,0.2)' };
+    if (type === 'Walk-in Purchase') return { label: 'Walk-in خرچ', color: '#f87171', bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.2)' };
+    if (type === 'Cash Paid') return { label: 'ادائیگی نقد', color: 'var(--red)', bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.2)' };
+    if (type === 'Payment Out') return { label: 'ادائیگی آوٹ', color: '#ff9800', bg: 'rgba(255,152,0,0.1)', border: 'rgba(255,152,0,0.2)' };
+    return {};
+  };
+
   return (
     <div className="fade-in">
       <div className="page-header">
-        <h2>Day Book — <span className="urdu">روزنامچہ</span></h2>
-        <ExportDropdown onExport={handleExport} disabled={sortedEntries.length === 0} />
+        <h2>
+          {activeTab === 'roznamcha'
+            ? <>Day Book — <span className="urdu">روزنامچہ</span></>
+            : <>Rokar Khata — <span className="urdu">روکڑ کھاتہ</span></>}
+        </h2>
+        {activeTab === 'roznamcha' && (
+          <ExportDropdown onExport={handleExport} disabled={sortedEntries.length === 0} />
+        )}
+      </div>
+
+      {/* Tab Toggle */}
+      <div className="tabs" style={{ marginBottom: 16 }}>
+        <button
+          className={`tab ${activeTab === 'roznamcha' ? 'active' : ''}`}
+          onClick={() => setActiveTab('roznamcha')}
+        >
+          📒 Roznamcha — <span className="urdu">روزنامچہ</span>
+        </button>
+        <button
+          className={`tab ${activeTab === 'rokar' ? 'active' : ''}`}
+          onClick={() => setActiveTab('rokar')}
+        >
+          💰 Rokar Khata — <span className="urdu">روکڑ کھاتہ</span>
+        </button>
       </div>
 
       {/* Professional Date Navigation */}
@@ -181,6 +223,9 @@ export default function DayBook() {
         )}
       </div>
 
+      {/* ══ ROZNAMCHA VIEW ══ */}
+      {activeTab === 'roznamcha' && (
+        <>
       {/* Summary Stats — 3 cards */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
         <div className="stat-card"><div className="stat-icon green">↓</div><div className="stat-info"><h3>Total Inflow — آمدن</h3><div className="stat-value" style={{ color: 'var(--green)' }}>{formatPKR(totalIn)}</div></div></div>
@@ -488,6 +533,177 @@ export default function DayBook() {
           </div>
         </div>
       </div>
+
+      {/* ══ END ROZNAMCHA VIEW ══ */}
+        </>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════
+          ROKAR KHATA VIEW — Cash-only T-Account
+          ═══════════════════════════════════════════════════════ */}
+      {activeTab === 'rokar' && (
+        <div>
+          {/* Rokar Summary Stats */}
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
+            <div className="stat-card">
+              <div className="stat-icon green">↓</div>
+              <div className="stat-info">
+                <h3>کل جمع — Cash In</h3>
+                <div className="stat-value" style={{ color: 'var(--green)' }}>{formatPKR(totalRokarJama)}</div>
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-icon red">↑</div>
+              <div className="stat-info">
+                <h3>کل خرچ — Cash Out</h3>
+                <div className="stat-value" style={{ color: 'var(--red)' }}>{formatPKR(totalRokarKharch)}</div>
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-icon indigo">₨</div>
+              <div className="stat-info">
+                <h3>نقد بیلنس — Cash Balance</h3>
+                <div className="stat-value" style={{ color: rokarBalance >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                  {formatPKR(Math.abs(rokarBalance))}
+                  {rokarBalance < 0 && <span style={{ fontSize: '0.7rem', marginLeft: 4 }}>(Deficit)</span>}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Rokar T-Account */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 0, marginBottom: 24, minHeight: 300 }}>
+
+            {/* ── LEFT: جمع (Cash In) ── */}
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', background: 'rgba(52,211,153,0.06)', borderRadius: '14px 0 0 0', border: '1px solid rgba(52,211,153,0.15)', borderRight: 'none' }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(52,211,153,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <MdTrendingDown style={{ fontSize: '1.3rem', color: 'var(--green)' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', lineHeight: 1 }}>نقد آمدن — Cash In</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--green)', lineHeight: 1.4 }}>جمع <span className="urdu" style={{ fontSize: '0.85rem' }}>Walk-in، وصولی، ادائیگی وصول</span></div>
+                </div>
+              </div>
+              <div style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid rgba(52,211,153,0.15)', borderTop: 'none', borderRight: 'none', borderRadius: '0 0 0 14px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ flex: 1, overflowY: 'auto' }}>
+                  <table className="data-table" style={{ marginBottom: 0 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 36 }}>#</th>
+                        <th>Time</th>
+                        <th>Type</th>
+                        <th>Party</th>
+                        <th>Product</th>
+                        <th style={{ textAlign: 'right' }}>Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rokarJama.length > 0 ? rokarJama.map((e, i) => {
+                        const badge = getRokarBadge(e.type);
+                        return (
+                          <tr key={i}>
+                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{i + 1}</td>
+                            <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{formatTime(e.date)}</td>
+                            <td>
+                              <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: '0.68rem', fontWeight: 600, color: badge.color, background: badge.bg, border: `1px solid ${badge.border}` }}>
+                                {badge.label}
+                              </span>
+                            </td>
+                            <td>{e.party_name || '—'}{e.party_name_urdu ? <><br /><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.party_name_urdu}</span></> : ''}</td>
+                            <td>{e.product_name || '—'}{e.product_name_urdu ? <><br /><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.product_name_urdu}</span></> : ''}</td>
+                            <td className="amount" style={{ textAlign: 'right', color: badge.color, fontWeight: 700 }}>{formatPKR(e.amount)}</td>
+                          </tr>
+                        );
+                      }) : (
+                        <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>کوئی نقد آمدن نہیں — No cash inflow</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {rokarJama.length > 0 && (
+                  <div style={{ padding: '14px 18px', background: 'rgba(52,211,153,0.06)', borderTop: '2px solid rgba(52,211,153,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>کل جمع</span>
+                    <span style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--green)' }}>{formatPKR(totalRokarJama)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── DIVIDER ── */}
+            <div style={{ width: 3, background: 'linear-gradient(to bottom, rgba(212,160,23,0.05), rgba(212,160,23,0.4), rgba(212,160,23,0.4), rgba(212,160,23,0.05))', position: 'relative' }}>
+              <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%) rotate(45deg)', width: 12, height: 12, background: 'var(--accent)', borderRadius: 2, boxShadow: '0 0 12px rgba(212,160,23,0.4)' }} />
+            </div>
+
+            {/* ── RIGHT: خرچ (Cash Out) ── */}
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', background: 'rgba(248,113,113,0.06)', borderRadius: '0 14px 0 0', border: '1px solid rgba(248,113,113,0.15)', borderLeft: 'none' }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(248,113,113,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <MdTrendingUp style={{ fontSize: '1.3rem', color: 'var(--red)' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', lineHeight: 1 }}>نقد خرچ — Cash Out</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--red)', lineHeight: 1.4 }}>خرچ <span className="urdu" style={{ fontSize: '0.85rem' }}>ادائیگی، خریداری نقد</span></div>
+                </div>
+              </div>
+              <div style={{ flex: 1, background: 'var(--bg-card)', border: '1px solid rgba(248,113,113,0.15)', borderTop: 'none', borderLeft: 'none', borderRadius: '0 0 14px 0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ flex: 1, overflowY: 'auto' }}>
+                  <table className="data-table" style={{ marginBottom: 0 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 36 }}>#</th>
+                        <th>Time</th>
+                        <th>Type</th>
+                        <th>Party</th>
+                        <th>Product</th>
+                        <th style={{ textAlign: 'right' }}>Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rokarKharch.length > 0 ? rokarKharch.map((e, i) => {
+                        const badge = getRokarBadge(e.type);
+                        return (
+                          <tr key={i}>
+                            <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{i + 1}</td>
+                            <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{formatTime(e.date)}</td>
+                            <td>
+                              <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: '0.68rem', fontWeight: 600, color: badge.color, background: badge.bg, border: `1px solid ${badge.border}` }}>
+                                {badge.label}
+                              </span>
+                            </td>
+                            <td>{e.party_name || '—'}{e.party_name_urdu ? <><br /><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.party_name_urdu}</span></> : ''}</td>
+                            <td>{e.product_name || '—'}{e.product_name_urdu ? <><br /><span className="urdu" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{e.product_name_urdu}</span></> : ''}</td>
+                            <td className="amount" style={{ textAlign: 'right', color: badge.color, fontWeight: 700 }}>{formatPKR(e.amount)}</td>
+                          </tr>
+                        );
+                      }) : (
+                        <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>کوئی نقد خرچ نہیں — No cash outflow</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {rokarKharch.length > 0 && (
+                  <div style={{ padding: '14px 18px', background: 'rgba(248,113,113,0.06)', borderTop: '2px solid rgba(248,113,113,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>کل خرچ</span>
+                    <span style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--red)' }}>{formatPKR(totalRokarKharch)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Cash Balance Footer */}
+          <div style={{ padding: '16px 24px', borderRadius: 14, background: rokarBalance >= 0 ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)', border: `1px solid ${rokarBalance >= 0 ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>نقد بیلنس — Cash Balance</div>
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 2 }}>کل جمع {formatPKR(totalRokarJama)} − کل خرچ {formatPKR(totalRokarKharch)}</div>
+            </div>
+            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: rokarBalance >= 0 ? 'var(--green)' : 'var(--red)' }}>
+              {rokarBalance < 0 ? '−' : '+'}{formatPKR(Math.abs(rokarBalance))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('api', {
   getBuyerLedger: (id) => ipcRenderer.invoke('get-buyer-ledger', id),
   getSupplierLedger: (id) => ipcRenderer.invoke('get-supplier-ledger', id),
   getDaybook: (date) => ipcRenderer.invoke('get-daybook', date),
+  getRokar: (date) => ipcRenderer.invoke('get-rokar', date),
   // Reports
   getReport: (type, f) => ipcRenderer.invoke('get-report', type, f),
   // Backup & Restore

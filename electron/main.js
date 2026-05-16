@@ -145,14 +145,73 @@ function registerIpcHandlers() {
 
   // Day Book
   ipcMain.handle('get-daybook', (_e, date) => {
+    // Sales — full net_amount (represents the complete transaction value)
     const s = queryAll("SELECT 'Sale' as type,s.date,s.net_amount as amount,b.name as party_name,b.name_urdu as party_name_urdu,p.name as product_name,p.name_urdu as product_name_urdu FROM sales s LEFT JOIN buyers b ON s.buyer_id=b.id LEFT JOIN products p ON s.product_id=p.id WHERE substr(s.date,1,10)=?", [date]);
+    // Purchases — full net_amount (represents the complete transaction value)
     const pu = queryAll("SELECT 'Purchase' as type,pu.date,pu.net_amount as amount,sp.name as party_name,sp.name_urdu as party_name_urdu,p.name as product_name,p.name_urdu as product_name_urdu FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id LEFT JOIN products p ON pu.product_id=p.id WHERE substr(pu.date,1,10)=?", [date]);
+    // Standalone payments from the payments table only (no inline amount_paid — avoids double-counting)
     const pa = queryAll("SELECT CASE WHEN type='Received' THEN 'Payment In' ELSE 'Payment Out' END as type,date,amount,CASE WHEN party_type='Buyer' THEN (SELECT name FROM buyers WHERE id=party_id) ELSE (SELECT name FROM suppliers WHERE id=party_id) END as party_name,CASE WHEN party_type='Buyer' THEN (SELECT name_urdu FROM buyers WHERE id=party_id) ELSE (SELECT name_urdu FROM suppliers WHERE id=party_id) END as party_name_urdu,'' as product_name,'' as product_name_urdu FROM payments WHERE substr(date,1,10)=?", [date]);
-    // Inline payments: amount_paid at time of sale (received from buyer)
-    const salePayments = queryAll("SELECT 'Payment In' as type,s.date,s.amount_paid as amount,b.name as party_name,b.name_urdu as party_name_urdu,p.name as product_name,p.name_urdu as product_name_urdu FROM sales s LEFT JOIN buyers b ON s.buyer_id=b.id LEFT JOIN products p ON s.product_id=p.id WHERE substr(s.date,1,10)=? AND s.amount_paid>0", [date]);
-    // Inline payments: amount_paid at time of purchase (paid to supplier)
-    const purchasePayments = queryAll("SELECT 'Payment Out' as type,pu.date,pu.amount_paid as amount,sp.name as party_name,sp.name_urdu as party_name_urdu,p.name as product_name,p.name_urdu as product_name_urdu FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id LEFT JOIN products p ON pu.product_id=p.id WHERE substr(pu.date,1,10)=? AND pu.amount_paid>0", [date]);
-    return [...s, ...pu, ...pa, ...salePayments, ...purchasePayments];
+    return [...s, ...pu, ...pa];
+  });
+
+  // Rokar Khata — cash-only transactions (روکڑ کھاتہ)
+  ipcMain.handle('get-rokar', (_e, date) => {
+    // جمع: Walk-in Sales (always cash — full net_amount)
+    const walkInSales = queryAll(
+      `SELECT 'Walk-in Sale' as type, s.date, s.net_amount as amount,
+              b.name as party_name, b.name_urdu as party_name_urdu,
+              p.name as product_name, p.name_urdu as product_name_urdu
+       FROM sales s
+       LEFT JOIN buyers b ON s.buyer_id = b.id
+       LEFT JOIN products p ON s.product_id = p.id
+       WHERE substr(s.date,1,10)=? AND b.type='Walk-in'`, [date]);
+
+    // جمع: Regular Buyer Sales where cash was received at time of sale
+    const cashSales = queryAll(
+      `SELECT 'Cash Received' as type, s.date, s.amount_paid as amount,
+              b.name as party_name, b.name_urdu as party_name_urdu,
+              p.name as product_name, p.name_urdu as product_name_urdu
+       FROM sales s
+       LEFT JOIN buyers b ON s.buyer_id = b.id
+       LEFT JOIN products p ON s.product_id = p.id
+       WHERE substr(s.date,1,10)=? AND b.type='Regular' AND s.amount_paid > 0`, [date]);
+
+    // خرچ: Walk-in Purchases (always cash — full net_amount, mirrors Walk-in Sales logic)
+    const walkInPurchases = queryAll(
+      `SELECT 'Walk-in Purchase' as type, pu.date, pu.net_amount as amount,
+              sp.name as party_name, sp.name_urdu as party_name_urdu,
+              p.name as product_name, p.name_urdu as product_name_urdu
+       FROM purchases pu
+       LEFT JOIN suppliers sp ON pu.supplier_id = sp.id
+       LEFT JOIN products p ON pu.product_id = p.id
+       WHERE substr(pu.date,1,10)=? AND sp.type='Walk-in'`, [date]);
+
+    // خرچ: Regular Supplier Purchases where cash was paid at time of purchase
+    const cashPurchases = queryAll(
+      `SELECT 'Cash Paid' as type, pu.date, pu.amount_paid as amount,
+              sp.name as party_name, sp.name_urdu as party_name_urdu,
+              p.name as product_name, p.name_urdu as product_name_urdu
+       FROM purchases pu
+       LEFT JOIN suppliers sp ON pu.supplier_id = sp.id
+       LEFT JOIN products p ON pu.product_id = p.id
+       WHERE substr(pu.date,1,10)=? AND sp.type='Regular' AND pu.amount_paid > 0`, [date]);
+
+    // جمع / خرچ: Standalone payments (pure cash transfers)
+    const payments = queryAll(
+      `SELECT CASE WHEN type='Received' THEN 'Payment In' ELSE 'Payment Out' END as type,
+              date, amount,
+              CASE WHEN party_type='Buyer'
+                THEN (SELECT name FROM buyers WHERE id=party_id)
+                ELSE (SELECT name FROM suppliers WHERE id=party_id)
+              END as party_name,
+              CASE WHEN party_type='Buyer'
+                THEN (SELECT name_urdu FROM buyers WHERE id=party_id)
+                ELSE (SELECT name_urdu FROM suppliers WHERE id=party_id)
+              END as party_name_urdu,
+              '' as product_name, '' as product_name_urdu
+       FROM payments WHERE substr(date,1,10)=?`, [date]);
+
+    return [...walkInSales, ...cashSales, ...cashPurchases, ...payments];
   });
 
   // Reports

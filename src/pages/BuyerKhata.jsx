@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MdArrowBack, MdAdd, MdDelete, MdEdit, MdPayment, MdPointOfSale, MdPerson, MdPhone, MdBadge, MdLocationOn, MdClose } from 'react-icons/md';
+import { MdArrowBack, MdAdd, MdDelete, MdEdit, MdPayment, MdPointOfSale, MdPerson, MdPhone, MdBadge, MdLocationOn, MdClose, MdWarning } from 'react-icons/md';
 import { formatPKR, formatDate, todayISO, formatNumber } from '../utils/formatters';
 import { confirmAction } from '../utils/confirmDialog';
 import { exportToPDF, exportToXLSX, exportToCSV, fileTimestamp } from '../utils/exportReport';
@@ -27,7 +27,7 @@ export default function BuyerKhata() {
   const [products, setProducts] = useState([]);
   const [units, setUnits] = useState([]);
   const [availableStock, setAvailableStock] = useState(null);
-  const [stockError, setStockError] = useState('');
+  const [stockWarning, setStockWarning] = useState('');
   const [commissionMode, setCommissionMode] = useState('default');
   const [customPercent, setCustomPercent] = useState('');
   const [showUnitInput, setShowUnitInput] = useState(false);
@@ -86,18 +86,18 @@ export default function BuyerKhata() {
   const recalcCommission = (qty, rate, pid) => calcCommission(qty, rate, getDefaultPercent(pid));
 
   const checkStock = async (productId) => {
-    if (!productId) { setAvailableStock(null); setStockError(''); return; }
+    if (!productId) { setAvailableStock(null); setStockWarning(''); return; }
     const stock = await window.api.getProductStock(parseInt(productId));
     setAvailableStock(stock);
-    if (stock <= 0) setStockError('Out of stock! Available: 0');
-    else setStockError('');
+    setStockWarning(''); // reset on product change; weight validation will set it if needed
   };
 
   const validateSafiWeight = (tw, k) => {
     const safi = Math.max(0, (parseFloat(tw) || 0) - (parseFloat(k) || 0));
-    if (availableStock !== null && safi > availableStock) setStockError(`Not enough stock! Available: ${formatNumber(availableStock)}`);
-    else if (availableStock !== null && availableStock <= 0) setStockError('Out of stock! Available: 0');
-    else setStockError('');
+    if (availableStock !== null && safi > availableStock)
+      setStockWarning(`Selling beyond stock — Available: ${formatNumber(availableStock)}, Entering: ${formatNumber(safi)}`);
+    else
+      setStockWarning('');
   };
 
   const openSaleForm = () => {
@@ -105,7 +105,7 @@ export default function BuyerKhata() {
     setCommissionMode('default'); setCustomPercent('');
     setShowUnitInput(false); setNewUnit('');
     setSaleForm({ product_id: '', date: todayISO(), total_weight: '', kaat: 0, rate: '', commission: 0, bardana: 0, labour: 0, munshiyana: 0, kiraya: 0, others: 0, payment_mode: 'On Account', notes: '', unit: '', amount_paid: 0, payment_status: 'To Receive' });
-    setAvailableStock(null); setStockError('');
+    setAvailableStock(null); setStockWarning('');
     setShowSaleForm(true);
   };
 
@@ -168,13 +168,7 @@ export default function BuyerKhata() {
     if (!saleForm.product_id) return toast.error('Please select a product — جنس منتخب کریں');
     if (qty <= 0) return toast.error('Safi Weight must be greater than 0');
 
-    let currentStock = await window.api.getProductStock(parseInt(saleForm.product_id));
-    if (editingSaleId) {
-      const orig = await window.api.getSale(editingSaleId);
-      if (orig && orig.product_id === parseInt(saleForm.product_id)) currentStock += orig.quantity;
-    }
-    if (currentStock <= 0 && !editingSaleId) return toast.error('Cannot save sale — this product is out of stock!');
-    if (qty > currentStock) return toast.error(`Cannot save — not enough stock! Available: ${formatNumber(currentStock)}, Requested: ${formatNumber(qty)}`);
+    // No hard stock restriction — overselling is allowed and will result in negative stock (handled via Stock Overview)
 
     const amountPaid = parseFloat(saleForm.amount_paid) || 0;
     const paymentStatus = updatePaymentStatus(amountPaid);
@@ -389,7 +383,7 @@ export default function BuyerKhata() {
                 <option value="">Select Product</option>
                 {products.filter(p => p.status === 'Active').map(p => <option key={p.id} value={p.id}>{p.name} — {p.name_urdu}</option>)}
               </select>
-              {availableStock !== null && <div style={{ fontSize: '0.78rem', fontWeight: 600, marginTop: 4, color: availableStock > 0 ? 'var(--green)' : 'var(--red)' }}>Available: {formatNumber(availableStock)}</div>}
+              {availableStock !== null && <div style={{ fontSize: '0.78rem', fontWeight: 600, marginTop: 4, color: 'var(--green)' }}>Available: {formatNumber(availableStock)}</div>}
             </div>
             <div className="form-group">
               <label>Unit — اکائی</label>
@@ -416,8 +410,16 @@ export default function BuyerKhata() {
               <input type="number" step="0.01" required value={saleForm.total_weight}
                 onKeyDown={blockInvalidChars} onWheel={preventScrollChange}
                 onChange={e => { const tw = e.target.value; validateSafiWeight(tw, saleForm.kaat); const safi = Math.max(0, (parseFloat(tw) || 0) - (parseFloat(saleForm.kaat) || 0)); const comm = commissionMode === 'default' ? recalcCommission(safi, saleForm.rate) : calcCommission(safi, saleForm.rate, customPercent); setSaleForm({ ...saleForm, total_weight: tw, commission: comm }); }}
-                style={stockError ? { borderColor: 'var(--red)', boxShadow: '0 0 0 3px var(--red-glow)' } : {}} />
-              {stockError && <div style={{ fontSize: '0.75rem', color: 'var(--red)', fontWeight: 600, marginTop: 4 }}>{stockError}</div>}
+                style={stockWarning ? { borderColor: '#f59e0b', boxShadow: '0 0 0 3px rgba(245,158,11,0.18)' } : {}} />
+              {stockWarning && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 6, padding: '8px 10px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 8 }}>
+                  <MdWarning style={{ fontSize: '1rem', color: '#f59e0b', flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: 700 }}>Overselling Notice — اسٹاک سے زیادہ</div>
+                    <div style={{ fontSize: '0.72rem', color: '#b45309', marginTop: 2 }}>{stockWarning}. This will result in negative stock.</div>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="form-group">
               <label>Kaat — <span className="urdu">کاٹ</span></label>
@@ -527,7 +529,7 @@ export default function BuyerKhata() {
             <div className="form-group"><label>Notes — نوٹ</label><input value={saleForm.notes} onChange={e => setSaleForm({ ...saleForm, notes: e.target.value })} /></div>
           </div>
           <div className="totals-bar"><span>Total: <strong>{formatPKR(saleTotal)}</strong></span><span>Net: <strong className="amount positive" style={{ fontSize: '1.1rem' }}>{formatPKR(saleNet)}</strong></span></div>
-          <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => { setShowSaleForm(false); setEditingSaleId(null); }}>Cancel</button><button type="submit" className="btn btn-primary" disabled={!!stockError}>{editingSaleId ? 'Update Sale' : 'Save Sale'}</button></div>
+          <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={() => { setShowSaleForm(false); setEditingSaleId(null); }}>Cancel</button><button type="submit" className="btn btn-primary">{editingSaleId ? 'Update Sale' : 'Save Sale'}</button></div>
         </form>
       </Modal>
 
