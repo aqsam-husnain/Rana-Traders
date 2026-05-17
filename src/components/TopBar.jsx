@@ -1,8 +1,9 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
-import { MdLightMode, MdDarkMode } from 'react-icons/md';
+import { MdLightMode, MdDarkMode, MdKeyboard } from 'react-icons/md';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useShortcuts } from '../context/ShortcutContext';
 
 const pageTitles = {
   '/dashboard': 'Dashboard',
@@ -24,6 +25,7 @@ export default function TopBar() {
   const { theme, toggleTheme } = useTheme();
   const { user } = useAuth();
   const location = useLocation();
+  const { setPaletteOpen, setHelpOpen } = useShortcuts();
 
   const title = pageTitles[location.pathname] || 'Rana Traders';
 
@@ -33,6 +35,12 @@ export default function TopBar() {
         <h2>{title}</h2>
       </div>
       <div className="topbar-right">
+        <div className="topbar-shortcut-hint" onClick={() => setPaletteOpen(true)} title="Command Palette (Ctrl+K)">
+          🔍 <span>Search commands</span> <kbd>Ctrl+K</kbd>
+        </div>
+        <button className="topbar-btn" onClick={() => setHelpOpen(true)} title="Keyboard Shortcuts (Ctrl+/)">
+          <MdKeyboard />
+        </button>
         <button className="topbar-btn" onClick={toggleTheme} title="Toggle Theme">
           {theme === 'dark' ? <MdLightMode /> : <MdDarkMode />}
         </button>

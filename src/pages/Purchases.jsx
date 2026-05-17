@@ -8,9 +8,12 @@ import Modal from '../components/Modal';
 import SearchableSelect from '../components/SearchableSelect';
 import { useToast } from '../components/Toast';
 import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
+import { useShortcuts } from '../context/ShortcutContext';
+import ShortcutBadge from '../components/ShortcutBadge';
 
 export default function Purchases() {
   const toast = useToast();
+  const { registerPageHandlers, unregisterPageHandlers } = useShortcuts();
   const [purchases, setPurchases] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -28,6 +31,17 @@ export default function Purchases() {
   const [form, setForm] = useState({ supplier_id: '', product_id: '', date: todayISO(), total_weight: '', kaat: 0, rate: '', commission: 0, bardana: 0, labour: 0, munshiyana: 0, kiraya: 0, others: 0, payment_mode: 'On Account', notes: '', amount_paid: 0, payment_status: 'To Pay', unit: 'KG' });
 
   useEffect(() => { load(); }, []);
+
+  // Register keyboard shortcuts for this page
+  useEffect(() => {
+    registerPageHandlers({
+      'page.new': () => openForm(),
+      'page.exportPdf': () => handleExport('pdf'),
+      'page.exportXlsx': () => handleExport('xlsx'),
+    });
+    return () => unregisterPageHandlers();
+  }, [purchases]);
+
   const load = async () => {
     setPurchases(await window.api.getPurchases());
     const allSuppliers = await window.api.getSuppliers();
@@ -173,7 +187,7 @@ export default function Purchases() {
         <h2>Purchases — <span className="urdu">خریداری</span></h2>
         <div className="flex gap-2">
           <ExportDropdown onExport={handleExport} disabled={purchases.length === 0} />
-          <button className="btn btn-primary" onClick={openForm}><MdAdd /> New Purchase</button>
+          <button className="btn btn-primary" onClick={openForm}><MdAdd /> New Purchase<ShortcutBadge actionId="page.new" /></button>
         </div>
       </div>
       <div className="data-table-wrapper">

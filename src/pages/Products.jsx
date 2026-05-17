@@ -5,7 +5,8 @@ import { formatNumber } from '../utils/formatters';
 import { confirmAction } from '../utils/confirmDialog';
 import { useToast } from '../components/Toast';
 import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
-
+import { useShortcuts } from '../context/ShortcutContext';
+import ShortcutBadge from '../components/ShortcutBadge';
 export default function Products() {
   const [products, setProducts] = useState([]);
   const [units, setUnits] = useState([]);
@@ -16,12 +17,21 @@ export default function Products() {
   const [newUnit, setNewUnit] = useState('');
   const [showUnitInput, setShowUnitInput] = useState(false);
   const toast = useToast();
+  const { registerPageHandlers, unregisterPageHandlers } = useShortcuts();
 
   // Ref always holds the latest form — immune to stale closures
   const formRef = useRef(form);
   formRef.current = form;
 
   useEffect(() => { load(); }, []);
+
+  // Register keyboard shortcuts for this page
+  useEffect(() => {
+    registerPageHandlers({
+      'page.new': () => openAddForm(),
+    });
+    return () => unregisterPageHandlers();
+  }, []);
 
   const load = async () => {
     setProducts(await window.api.getProducts());
@@ -107,7 +117,7 @@ export default function Products() {
     <div className="fade-in">
       <div className="page-header">
         <h2>Products — <span className="urdu">اجناس</span></h2>
-        <button className="btn btn-primary" onClick={openAddForm}><MdAdd /> Add Product</button>
+        <button className="btn btn-primary" onClick={openAddForm}><MdAdd /> Add Product<ShortcutBadge actionId="page.new" /></button>
       </div>
       <div className="search-bar"><MdSearch /><input placeholder="Search products..." value={search} onChange={e => setSearch(e.target.value)} /></div>
       <div className="data-table-wrapper">

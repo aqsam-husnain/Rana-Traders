@@ -5,6 +5,7 @@ import ExportDropdown from '../components/ExportDropdown';
 import SearchableSelect from '../components/SearchableSelect';
 import { useToast } from '../components/Toast';
 import { MdAccountBalance, MdBalance, MdInventory, MdAccountBalanceWallet, MdTrendingDown, MdTrendingUp, MdMoneyOff, MdMenuBook } from 'react-icons/md';
+import { useShortcuts } from '../context/ShortcutContext';
 
 const reportTypes = [
   { id: 'daily-sales',         name: 'Daily Sale Report',       urdu: 'یومیہ فروخت رپورٹ',   needsDate: true },
@@ -135,6 +136,16 @@ export default function Reports() {
   const [products, setProducts] = useState([]);
   const [productId, setProductId] = useState('');
   const toast = useToast();
+  const { registerPageHandlers, unregisterPageHandlers } = useShortcuts();
+
+  // Register keyboard shortcuts for this page
+  React.useEffect(() => {
+    registerPageHandlers({
+      'page.generate': () => generate(),
+      'page.exportPdf': () => handleExport('pdf'),
+    });
+    return () => unregisterPageHandlers();
+  }, [selectedReport, data, dateFrom, dateTo, partyType, partyId, productId]);
 
   // Load buyers/suppliers/products for pickers
   React.useEffect(() => {

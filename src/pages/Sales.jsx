@@ -8,9 +8,12 @@ import Modal from '../components/Modal';
 import SearchableSelect from '../components/SearchableSelect';
 import { useToast } from '../components/Toast';
 import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
+import { useShortcuts } from '../context/ShortcutContext';
+import ShortcutBadge from '../components/ShortcutBadge';
 
 export default function Sales() {
   const toast = useToast();
+  const { registerPageHandlers, unregisterPageHandlers } = useShortcuts();
   const [sales, setSales] = useState([]);
   const [buyers, setBuyers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -37,6 +40,16 @@ export default function Sales() {
   });
 
   useEffect(() => { load(); }, []);
+
+  // Register keyboard shortcuts for this page
+  useEffect(() => {
+    registerPageHandlers({
+      'page.new': () => openForm(),
+      'page.exportPdf': () => handleExport('pdf'),
+      'page.exportXlsx': () => handleExport('xlsx'),
+    });
+    return () => unregisterPageHandlers();
+  }, [sales]);
 
   const load = async () => {
     setSales(await window.api.getSales());
@@ -221,7 +234,7 @@ export default function Sales() {
         <h2>Sales — <span className="urdu">فروخت</span></h2>
         <div className="flex gap-2">
           <ExportDropdown onExport={handleExport} disabled={sales.length === 0} />
-          <button className="btn btn-primary" onClick={openForm}><MdAdd /> New Sale</button>
+          <button className="btn btn-primary" onClick={openForm}><MdAdd /> New Sale<ShortcutBadge actionId="page.new" /></button>
         </div>
       </div>
 

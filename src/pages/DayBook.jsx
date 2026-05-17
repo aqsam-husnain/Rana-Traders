@@ -4,6 +4,7 @@ import { formatPKR, formatDate, todayDateOnly } from '../utils/formatters';
 import { exportDayBookPDF, exportToXLSX, exportToCSV, fileTimestamp } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import { useToast } from '../components/Toast';
+import { useShortcuts } from '../context/ShortcutContext';
 
 export default function DayBook() {
   const [date, setDate] = useState(todayDateOnly());
@@ -12,6 +13,7 @@ export default function DayBook() {
   const [rokarCumulative, setRokarCumulative] = useState({ openingBalance: 0, totalIn: 0, totalOut: 0, balance: 0 });
   const [activeTab, setActiveTab] = useState('roznamcha');
   const toast = useToast();
+  const { registerPageHandlers, unregisterPageHandlers } = useShortcuts();
   const dateInputRef = React.useRef(null);
 
   useEffect(() => {
@@ -25,6 +27,18 @@ export default function DayBook() {
       window.api.getRokarCumulative().then(setRokarCumulative);
     }
   }, [activeTab]);
+
+  // Register keyboard shortcuts for this page
+  useEffect(() => {
+    registerPageHandlers({
+      'daybook.prevDay': () => changeDay(-1),
+      'daybook.nextDay': () => changeDay(1),
+      'daybook.today': () => goToday(),
+      'daybook.tabToggle': () => setActiveTab(t => t === 'roznamcha' ? 'rokar' : 'roznamcha'),
+      'page.exportPdf': () => handleExport('pdf'),
+    });
+    return () => unregisterPageHandlers();
+  }, [date, activeTab, entries]);
 
   // ── Roznamcha data ──
   const sortedEntries = [...entries].sort((a, b) => (a.date || '').localeCompare(b.date || ''));

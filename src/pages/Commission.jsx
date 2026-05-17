@@ -4,6 +4,7 @@ import { exportToPDF, exportToXLSX, exportToCSV } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
 import { useToast } from '../components/Toast';
 import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
+import { useShortcuts } from '../context/ShortcutContext';
 
 
 export default function Commission() {
@@ -16,8 +17,20 @@ export default function Commission() {
   const [dateTo, setDateTo] = useState(todayISO());
   const [tab, setTab] = useState('settings');
   const toast = useToast();
+  const { registerPageHandlers, unregisterPageHandlers } = useShortcuts();
 
   useEffect(() => { window.api.getProducts().then(setProducts); }, []);
+
+  // Register keyboard shortcuts for this page
+  useEffect(() => {
+    registerPageHandlers({
+      'page.tab1': () => setTab('settings'),
+      'page.tab2': () => setTab('report'),
+      'page.generate': () => loadReport(),
+      'page.exportPdf': () => handleExport('pdf'),
+    });
+    return () => unregisterPageHandlers();
+  }, [tab, report, dateFrom, dateTo]);
 
   const loadReport = async () => {
     const data = await window.api.getReport('commission', { dateFrom, dateTo });

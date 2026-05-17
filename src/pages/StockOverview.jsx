@@ -5,6 +5,7 @@ import ExportDropdown from '../components/ExportDropdown';
 import { useToast } from '../components/Toast';
 import { MdSearch, MdAdd, MdClose } from 'react-icons/md';
 import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
+import { useShortcuts } from '../context/ShortcutContext';
 
 /**
  * Default conversion units (name → kg value).
@@ -44,10 +45,19 @@ export default function StockOverview() {
   const [extraUnits, setExtraUnits] = useState([]);
 
   const toast = useToast();
+  const { registerPageHandlers, unregisterPageHandlers } = useShortcuts();
 
   useEffect(() => {
     window.api.getStockOverview().then(setStock);
   }, []);
+
+  // Register keyboard shortcuts for this page
+  useEffect(() => {
+    registerPageHandlers({
+      'page.exportPdf': () => handleExport('pdf'),
+    });
+    return () => unregisterPageHandlers();
+  }, [stock]);
 
   const allConversions = [...DEFAULT_CONVERSIONS, ...extraUnits];
 

@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
+import CommandPalette from './CommandPalette';
 
 export default function Layout() {
   const pageContentRef = useRef(null);
@@ -74,6 +75,7 @@ export default function Layout() {
           <Outlet />
         </div>
       </div>
+      <CommandPalette />
     </div>
   );
 }

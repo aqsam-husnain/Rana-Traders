@@ -7,6 +7,8 @@ import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
 import { useToast } from '../components/Toast';
 import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
+import { useShortcuts } from '../context/ShortcutContext';
+import ShortcutBadge from '../components/ShortcutBadge';
 
 const CAT_COLORS = [
   '#a78bfa', '#4fc3f7', '#f87171', '#ff9800',
@@ -45,6 +47,7 @@ export default function Expenses() {
   const [manageCatName, setManageCatName]   = useState('');
 
   const toast = useToast();
+  const { registerPageHandlers, unregisterPageHandlers } = useShortcuts();
 
   useEffect(() => {
     loadCategories();
@@ -52,6 +55,16 @@ export default function Expenses() {
   }, []);
 
   useEffect(() => { load(); }, [filterFrom, filterTo, filterCat]);
+
+  // Register keyboard shortcuts for this page
+  useEffect(() => {
+    registerPageHandlers({
+      'page.new': () => openAdd(),
+      'page.manage': () => setShowManageCats(true),
+      'page.exportPdf': () => handleExport('pdf'),
+    });
+    return () => unregisterPageHandlers();
+  }, [expenses]);
 
   const loadCategories = async () => {
     try {
@@ -212,7 +225,7 @@ export default function Expenses() {
           </button>
           <ExportDropdown onExport={handleExport} disabled={expenses.length === 0} />
           <button className="btn btn-primary" onClick={openAdd}>
-            <MdAdd /> Add Expense
+            <MdAdd /> Add Expense<ShortcutBadge actionId="page.new" />
           </button>
         </div>
       </div>

@@ -8,6 +8,8 @@ import ExportDropdown from '../components/ExportDropdown';
 import Modal from '../components/Modal';
 import { useToast } from '../components/Toast';
 import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
+import { useShortcuts } from '../context/ShortcutContext';
+import ShortcutBadge from '../components/ShortcutBadge';
 
 export default function Suppliers() {
   const [suppliers, setSuppliers] = useState([]);
@@ -18,8 +20,19 @@ export default function Suppliers() {
   const [form, setForm] = useState(emptyForm);
   const navigate = useNavigate();
   const toast = useToast();
+  const { registerPageHandlers, unregisterPageHandlers } = useShortcuts();
 
   useEffect(() => { load(); }, []);
+
+  // Register keyboard shortcuts for this page
+  useEffect(() => {
+    registerPageHandlers({
+      'page.new': () => { setEditing(null); setForm(emptyForm); setShowForm(true); },
+      'page.exportPdf': () => handleExport('pdf'),
+    });
+    return () => unregisterPageHandlers();
+  }, [filtered]);
+
   const load = async () => { const d = await window.api.getSuppliers(); setSuppliers(d.filter(dl => dl.type === 'Regular')); };
   const handleSave = async (e) => { e.preventDefault(); if (editing) await window.api.updateSupplier(editing.id, { ...form, type: 'Regular' }); else await window.api.addSupplier({ ...form, type: 'Regular' }); setShowForm(false); setEditing(null); setForm(emptyForm); load(); toast.success(editing ? 'Supplier updated! — سپلائر اپ ڈیٹ ہو گیا' : 'Supplier added! — سپلائر شامل ہو گیا'); };
   const handleEdit = (d) => { setEditing(d); setForm(d); setShowForm(true); };
@@ -45,7 +58,7 @@ export default function Suppliers() {
         <h2>Suppliers — <span className="urdu">سپلائرز</span></h2>
         <div className="flex gap-2">
           <ExportDropdown onExport={handleExport} disabled={filtered.length === 0} />
-          <button className="btn btn-primary" onClick={() => { setEditing(null); setForm(emptyForm); setShowForm(true); }}><MdAdd /> Add Supplier</button>
+          <button className="btn btn-primary" onClick={() => { setEditing(null); setForm(emptyForm); setShowForm(true); }}><MdAdd /> Add Supplier<ShortcutBadge actionId="page.new" /></button>
         </div>
       </div>
       <div className="search-bar"><MdSearch /><input placeholder="Search suppliers..." value={search} onChange={e => setSearch(e.target.value)} /></div>

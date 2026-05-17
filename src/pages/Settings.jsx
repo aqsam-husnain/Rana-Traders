@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { MdBackup, MdRestore, MdDeleteForever, MdLightMode, MdDarkMode, MdInfo, MdStorage, MdWarning, MdCheckCircle, MdError, MdWarningAmber, MdAccountBalanceWallet, MdSave, MdEdit, MdLock, MdLockOpen } from 'react-icons/md';
 import Modal from '../components/Modal';
+import ShortcutSettings from '../components/ShortcutSettings';
 import logo from '../assets/logo.png';
 import { blockInvalidChars, preventScrollChange } from '../utils/inputHelpers';
 
@@ -107,6 +108,11 @@ export default function Settings() {
             <button className={`btn ${theme === 'dark' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { if (theme !== 'dark') toggleTheme(); }}><MdDarkMode /> Dark</button>
             <button className={`btn ${theme === 'light' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { if (theme !== 'light') toggleTheme(); }}><MdLightMode /> Light</button>
           </div>
+        </div>
+
+        {/* Keyboard Shortcuts */}
+        <div className="card">
+          <ShortcutSettings />
         </div>
 
         {/* Database Info */}
