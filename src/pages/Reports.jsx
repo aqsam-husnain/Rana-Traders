@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { formatPKR, formatNumber, formatDate, todayISO } from '../utils/formatters';
-import { exportToPDF, exportToXLSX, exportToCSV, exportRokarPDF, fileTimestamp } from '../utils/exportReport';
+import { exportToPDF, exportToXLSX, exportToCSV, exportRokarPDF, exportGeneralLedgerPDF, exportProfitLossPDF, exportReceivablePayablePDF, fileTimestamp } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
+import SearchableSelect from '../components/SearchableSelect';
 import { useToast } from '../components/Toast';
-import { MdAccountBalance, MdBalance, MdInventory, MdAccountBalanceWallet, MdTrendingDown, MdTrendingUp, MdMoneyOff } from 'react-icons/md';
+import { MdAccountBalance, MdBalance, MdInventory, MdAccountBalanceWallet, MdTrendingDown, MdTrendingUp, MdMoneyOff, MdMenuBook } from 'react-icons/md';
 
 const reportTypes = [
   { id: 'daily-sales',         name: 'Daily Sale Report',       urdu: 'یومیہ فروخت رپورٹ',   needsDate: true },
@@ -11,10 +12,11 @@ const reportTypes = [
   { id: 'commission',          name: 'Commission Report',       urdu: 'آڑت رپورٹ',       needsDate: true },
   { id: 'rokar-khata',         name: 'Rokar Khata Report',      urdu: 'روکڑ کھاتہ رپورٹ',  needsDate: true, custom: true },
   { id: 'stock',               name: 'Stock Report',            urdu: 'اسٹاک رپورٹ',        needsDate: false },
-  { id: 'buyer-outstanding',   name: 'Buyer Outstanding',       urdu: 'خریدار واجبات',     needsDate: false },
-  { id: 'supplier-outstanding',name: 'Supplier Outstanding',    urdu: 'سپلائر واجبات',     needsDate: false },
-  { id: 'profit-loss',         name: 'Profit & Loss',           urdu: 'نفع و نقصان',       needsDate: false },
-  { id: 'stock-valuation',     name: 'Daily Stock Valuation',   urdu: 'یومیہ اسٹاک قدر',   needsDate: true, custom: true },
+  { id: 'buyer-outstanding',   name: 'Receivable Report',       urdu: 'وصول رپورٹ',       needsAsOn: true },
+  { id: 'supplier-outstanding',name: 'Payable Report',          urdu: 'واجبات رپورٹ',     needsAsOn: true },
+  { id: 'profit-loss',         name: 'Profit & Loss',           urdu: 'نفع و نقصان',       needsDate: true, custom: true },
+  { id: 'general-ledger',      name: 'General Ledger',          urdu: 'جنرل لیجر',         needsDate: true, custom: true, needsParty: true },
+  { id: 'stock-valuation',     name: 'Daily Stock Valuation',   urdu: 'یومیہ اسٹاک قدر',   needsDate: true, custom: true, needsProduct: true },
   { id: 'balance-sheet',       name: 'Balance Sheet',           urdu: 'بیلنس شیٹ',         needsAsOn: true, custom: true },
   { id: 'trial-balance',       name: 'Trial Balance',           urdu: 'ٹرائل بیلنس',       needsAsOn: true, custom: true },
 ];
@@ -126,15 +128,34 @@ export default function Reports() {
   const [dateFrom, setDateFrom] = useState(todayISO().slice(0, 10));
   const [dateTo, setDateTo] = useState(todayISO().slice(0, 10));
   const [data, setData] = useState(null);
+  const [partyType, setPartyType] = useState('Buyer');
+  const [partyId, setPartyId] = useState('');
+  const [buyers, setBuyers] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [productId, setProductId] = useState('');
   const toast = useToast();
+
+  // Load buyers/suppliers/products for pickers
+  React.useEffect(() => {
+    window.api.getBuyers().then(b => setBuyers(b.filter(x => x.status === 'Active')));
+    window.api.getSuppliers().then(s => setSuppliers(s.filter(x => x.status === 'Active')));
+    window.api.getProducts().then(p => setProducts(p.filter(x => x.status === 'Active')));
+  }, []);
 
   const generate = async () => {
     if (!selectedReport) return;
     if (selectedReport === 'rokar-khata') {
       const result = await window.api.getRokarReport({ dateFrom, dateTo });
       setData(result);
+    } else if (selectedReport === 'general-ledger') {
+      if (!partyId) { toast.error('Please select a party'); return; }
+      const result = await window.api.getGeneralLedger(partyType, parseInt(partyId), { dateFrom, dateTo });
+      setData(result);
     } else {
-      const result = await window.api.getReport(selectedReport, { dateFrom, dateTo });
+      const filters = { dateFrom, dateTo };
+      if (selectedReport === 'stock-valuation' && productId) filters.productId = parseInt(productId);
+      const result = await window.api.getReport(selectedReport, filters);
       setData(result);
     }
   };
@@ -142,6 +163,7 @@ export default function Reports() {
   const currentType = reportTypes.find(r => r.id === selectedReport);
   const config = reportColumns[selectedReport];
   const isRokar = selectedReport === 'rokar-khata';
+  const isLedger = selectedReport === 'general-ledger';
 
   const handleExport = async (format) => {
     if (!data || !currentType) return;
@@ -149,9 +171,9 @@ export default function Reports() {
     const isArray = Array.isArray(data);
     const rows = isArray && config ? config.extract(data) : [];
     const summary = isArray && config?.summary ? config.summary(data) : [];
-    const dateRange = currentType.needsDate ? `${formatDate(dateFrom)} — ${formatDate(dateTo)}` : '';
+    let dateRange = currentType.needsDate ? `${formatDate(dateFrom)} — ${formatDate(dateTo)}` : (currentType.needsAsOn ? `As On: ${formatDate(dateTo)}` : '');
     const fileBase = `${currentType.name.replace(/[^a-zA-Z0-9]/g, '_')}_${ts}`;
-    const title = `${currentType.name} — ${currentType.urdu}`;
+    let title = `${currentType.name} — ${currentType.urdu}`;
     let exportRows = rows, exportCols = config?.columns || [], exportSummary = summary, highlightSet = null;
 
     // Build custom export for Rokar Khata
@@ -210,19 +232,54 @@ export default function Reports() {
     }
 
     // Build custom export rows for non-array reports
-    if (selectedReport === 'profit-loss' && !isArray) {
-      exportCols = ['Metric', 'Amount (PKR)'];
-      exportRows = [
-        ['Total Sales', formatPKR(data.totalSales)],
-        ['Total Purchases', formatPKR(data.totalPurchases)],
-        ['Total Commission Earned', formatPKR(data.totalCommission)],
-        ['Net Profit / Loss', formatPKR(data.totalSales - data.totalPurchases)],
-      ];
+    if (selectedReport === 'profit-loss' && data.revenue) {
+      exportCols = ['Account Description / اکاؤنٹ', 'Amount / رقم'];
+      const hl = new Set();
+      exportRows = []; hl.add(0); exportRows.push(['Revenue — آمدنی', '']);
+      if (data.revenue.items.length) {
+        hl.add(exportRows.length); exportRows.push(['  Products Sale A/c', '']);
+        data.revenue.items.forEach(r => exportRows.push(['    ' + r.name + (r.name_urdu ? ' / ' + r.name_urdu : ''), formatPKR(r.amount)]));
+        exportRows.push(['', formatPKR(data.revenue.total)]);
+      }
+      hl.add(exportRows.length); exportRows.push(['Revenue', formatPKR(data.revenue.total)]);
+      exportRows.push(['', '']);
+      hl.add(exportRows.length); exportRows.push(['Expense — اخراجات', '']);
+      if (data.businessExpenses.items.length) {
+        hl.add(exportRows.length); exportRows.push(['  Business Expenses — کاروباری اخراجات', '']);
+        data.businessExpenses.items.forEach(e => exportRows.push(['    ' + e.name, formatPKR(e.amount)]));
+        exportRows.push(['', formatPKR(data.businessExpenses.total)]);
+      }
+      if (data.cogs.items.length) {
+        hl.add(exportRows.length); exportRows.push(['  Products COGs A/c — لاگت کھاتے', '']);
+        data.cogs.items.forEach(c => exportRows.push(['    ' + c.name + (c.name_urdu ? ' / ' + c.name_urdu : ''), formatPKR(c.amount)]));
+        exportRows.push(['', formatPKR(data.cogs.total)]);
+      }
+      hl.add(exportRows.length); exportRows.push(['Expense', formatPKR(data.totalExpense)]);
+      exportRows.push(['', '']);
+      hl.add(exportRows.length); exportRows.push([data.netProfit >= 0 ? 'Net Profit — خالص نفع' : 'Net Loss — خالص نقصان', formatPKR(Math.abs(data.netProfit))]);
+      highlightSet = hl;
       exportSummary = [
-        { label: 'Total Sales', value: formatPKR(data.totalSales) },
-        { label: 'Total Purchases', value: formatPKR(data.totalPurchases) },
-        { label: 'Net Profit', value: formatPKR(data.totalSales - data.totalPurchases) },
+        { label: 'Revenue', value: formatPKR(data.revenue.total) },
+        { label: 'Expense', value: formatPKR(data.totalExpense) },
+        { label: 'Net Profit', value: formatPKR(data.netProfit) },
       ];
+    } else if (selectedReport === 'general-ledger' && data.party) {
+      const s = data.summary;
+      exportCols = ['Date', 'Voucher #', 'Particulars', 'Debit / بنام', 'Credit / جمع', 'Balance / بقایا'];
+      exportRows = [['', '', 'Opening Balance', s.openingDr > 0 ? formatPKR(s.openingDr) : '0', s.openingCr > 0 ? formatPKR(s.openingCr) : '0', formatPKR(Math.abs(s.openingDr - s.openingCr)) + ' ' + (s.openingDr >= s.openingCr ? 'Dr' : 'Cr')]];
+      data.entries.forEach(e => exportRows.push([formatDate(e.date), e.voucher, e.particulars, e.debit > 0 ? formatPKR(e.debit) : '0', e.credit > 0 ? formatPKR(e.credit) : '0', formatPKR(e.balance) + ' ' + e.balanceType]));
+      exportRows.push(['', '', 'Total', formatPKR(s.totalDr), formatPKR(s.totalCr), formatPKR(s.closingBalance) + ' ' + s.closingType]);
+      highlightSet = new Set([0, exportRows.length - 1]);
+      exportSummary = [
+        { label: 'Opening Dr', value: formatPKR(s.openingDr) },
+        { label: 'Opening Cr', value: formatPKR(s.openingCr) },
+        { label: 'Transaction Dr', value: formatPKR(s.transactionDr) },
+        { label: 'Transaction Cr', value: formatPKR(s.transactionCr) },
+        { label: 'Balance', value: formatPKR(s.closingBalance) + ' ' + s.closingType },
+      ];
+      const partyName = data.party.name + (data.party.name_urdu ? ' — ' + data.party.name_urdu : '');
+      title = `General Ledger — ${partyName}`;
+      dateRange = `${formatDate(dateFrom)} — ${formatDate(dateTo)}`;
     } else if (selectedReport === 'balance-sheet' && data.assets) {
       exportCols = ['Account Description / اکاؤنٹ', 'Amount / رقم'];
       const hl = new Set();
@@ -282,7 +339,18 @@ export default function Reports() {
 
     const exportData = { title, titleUrdu: currentType.urdu, columns: exportCols, rows: exportRows, summary: exportSummary, dateRange };
     let saved = false;
-    if (format === 'pdf') saved = await exportToPDF({ ...exportData, fileName: `${fileBase}.pdf`, highlightRows: highlightSet });
+    if (format === 'pdf') {
+      // Use specialized PDF export for specific report types
+      if (selectedReport === 'general-ledger' && data.party) {
+        saved = await exportGeneralLedgerPDF({ party: data.party, entries: data.entries, summary: data.summary, dateRange: `${formatDate(dateFrom)} To: ${formatDate(dateTo)}`, fileName: `${fileBase}` });
+      } else if (selectedReport === 'profit-loss' && data.revenue) {
+        saved = await exportProfitLossPDF({ data, dateRange: `${formatDate(dateFrom)} To: ${formatDate(dateTo)}`, fileName: `${fileBase}` });
+      } else if ((selectedReport === 'buyer-outstanding' || selectedReport === 'supplier-outstanding') && Array.isArray(data)) {
+        saved = await exportReceivablePayablePDF({ data, reportType: selectedReport, asOnDate: formatDate(dateTo), fileName: `${fileBase}` });
+      } else {
+        saved = await exportToPDF({ ...exportData, fileName: `${fileBase}.pdf`, highlightRows: highlightSet });
+      }
+    }
     else if (format === 'xlsx') saved = await exportToXLSX({ ...exportData, fileName: `${fileBase}.xlsx` });
     else if (format === 'csv') saved = await exportToCSV({ ...exportData, fileName: `${fileBase}.csv` });
     if (saved) toast.success('File exported successfully!');
@@ -456,15 +524,65 @@ export default function Reports() {
   };
 
   const renderProfitLoss = () => {
-    if (!data || Array.isArray(data)) return null;
-    const netProfit = data.totalSales - data.totalPurchases;
-    return (
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
-        <div className="stat-card"><div className="stat-icon green">₨</div><div className="stat-info"><h3>Total Sales</h3><div className="stat-value">{formatPKR(data.totalSales)}</div></div></div>
-        <div className="stat-card"><div className="stat-icon red">₨</div><div className="stat-info"><h3>Total Purchases</h3><div className="stat-value">{formatPKR(data.totalPurchases)}</div></div></div>
-        <div className="stat-card"><div className="stat-icon amber">%</div><div className="stat-info"><h3>Total Commission</h3><div className="stat-value">{formatPKR(data.totalCommission)}</div></div></div>
-        <div className="stat-card"><div className={`stat-icon ${netProfit >= 0 ? 'green' : 'red'}`}>±</div><div className="stat-info"><h3>Net Profit / Loss</h3><div className="stat-value" style={{ color: netProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatPKR(netProfit)}</div></div></div>
+    if (!data || Array.isArray(data) || !data.revenue) return null;
+    const sectionStyle = { background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: 0, overflow: 'hidden', marginBottom: 20 };
+    const sectionHeader = (label, isExpense) => (
+      <div style={{ padding: '12px 20px', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'underline', color: isExpense ? 'var(--red)' : 'var(--green)', background: isExpense ? 'rgba(248,113,113,0.06)' : 'rgba(52,211,153,0.06)', borderBottom: '1px solid var(--border)' }}>{label}</div>
+    );
+    const subHeader = (label) => (
+      <div style={{ padding: '8px 20px 4px 30px', fontWeight: 700, fontSize: '0.85rem', textDecoration: 'underline', color: 'var(--text-primary)' }}>{label}</div>
+    );
+    const itemRow = (item) => (
+      <div key={item.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 20px 4px 50px', fontSize: '0.84rem', borderBottom: '1px solid var(--border-light)' }}>
+        <span>{item.name}{item.name_urdu ? <><br/><span className="urdu" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{item.name_urdu}</span></> : ''}</span>
+        <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatPKR(item.amount)}</span>
       </div>
+    );
+    const subtotalRow = (val) => (
+      <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '6px 20px', fontWeight: 700, fontSize: '0.85rem', borderBottom: '1px solid var(--border)' }}>
+        <span style={{ fontVariantNumeric: 'tabular-nums', borderTop: '1px solid var(--text-muted)', paddingTop: 2 }}>{formatPKR(val)}</span>
+      </div>
+    );
+    const totalBar = (label, val, color) => (
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 20px', fontWeight: 800, fontSize: '0.9rem', background: 'var(--glass)', borderTop: '2px solid var(--border)', color }}>
+        <span>{label}</span><span>{formatPKR(val)}</span>
+      </div>
+    );
+    const np = data.netProfit;
+    return (
+      <>
+        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
+          <div className="stat-card"><div className="stat-icon green">₨</div><div className="stat-info"><h3>Revenue — آمدنی</h3><div className="stat-value" style={{ color: 'var(--green)' }}>{formatPKR(data.revenue.total)}</div></div></div>
+          <div className="stat-card"><div className="stat-icon red">₨</div><div className="stat-info"><h3>Expense — اخراجات</h3><div className="stat-value" style={{ color: 'var(--red)' }}>{formatPKR(data.totalExpense)}</div></div></div>
+          <div className="stat-card"><div className={`stat-icon ${np >= 0 ? 'green' : 'red'}`}>±</div><div className="stat-info"><h3>Net Profit — خالص نفع</h3><div className="stat-value" style={{ color: np >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatPKR(np)}</div></div></div>
+        </div>
+        <div style={sectionStyle}>
+          {sectionHeader('Revenue — آمدنی', false)}
+          {data.revenue.items.length > 0 && subHeader('Products Sale A/c — فروخت کھاتے')}
+          {data.revenue.items.map(r => itemRow(r))}
+          {data.revenue.items.length > 0 && subtotalRow(data.revenue.total)}
+          {totalBar('Revenue — آمدنی', data.revenue.total, 'var(--green)')}
+        </div>
+        <div style={sectionStyle}>
+          {sectionHeader('Expense — اخراجات', true)}
+          {data.businessExpenses.items.length > 0 && subHeader('Business Expenses — کاروباری اخراجات')}
+          {data.businessExpenses.items.map(e => itemRow(e))}
+          {data.businessExpenses.items.length > 0 && subtotalRow(data.businessExpenses.total)}
+          {data.cogs.items.length > 0 && subHeader('Products COGs A/c — لاگت کھاتے')}
+          {data.cogs.items.map(c => itemRow(c))}
+          {data.cogs.items.length > 0 && subtotalRow(data.cogs.total)}
+          {totalBar('Expense — اخراجات', data.totalExpense, 'var(--red)')}
+        </div>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', padding: '16px 22px', borderRadius: 14,
+          background: np >= 0 ? 'rgba(52,211,153,0.08)' : 'rgba(248,113,113,0.08)',
+          border: `1px solid ${np >= 0 ? 'rgba(52,211,153,0.25)' : 'rgba(248,113,113,0.25)'}`,
+          fontWeight: 800, fontSize: '1.1rem', color: np >= 0 ? 'var(--green)' : 'var(--red)'
+        }}>
+          <span>{np >= 0 ? 'Net Profit — خالص نفع' : 'Net Loss — خالص نقصان'}</span>
+          <span>{formatPKR(Math.abs(np))}</span>
+        </div>
+      </>
     );
   };
 
@@ -656,9 +774,81 @@ export default function Reports() {
     );
   };
 
+  /* ═══ General Ledger Renderer ═══ */
+  const renderGeneralLedger = () => {
+    if (!data || !data.party) return null;
+    const s = data.summary;
+    const openBal = s.openingDr - s.openingCr;
+    return (
+      <>
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: '16px 22px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>{data.party.name}{data.party.name_urdu ? <span className="urdu" style={{ marginLeft: 12, fontSize: '0.95rem', color: 'var(--text-muted)' }}>{data.party.name_urdu}</span> : ''}</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>{data.party.phone || ''} {data.party.address ? ' — ' + data.party.address : ''}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Closing Balance</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: s.closingType === 'Dr' ? 'var(--green)' : 'var(--red)' }}>{formatPKR(s.closingBalance)} {s.closingType}</div>
+            </div>
+          </div>
+        </div>
+        <div className="data-table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Voucher #</th>
+                <th>Particulars</th>
+                <th style={{ textAlign: 'right' }}>Debit / <span className="urdu">بنام</span></th>
+                <th style={{ textAlign: 'right' }}>Credit / <span className="urdu">جمع</span></th>
+                <th style={{ textAlign: 'right' }}>Balance / <span className="urdu">بقایا</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style={{ background: 'var(--glass)', fontWeight: 700 }}>
+                <td></td><td></td>
+                <td>Opening Balance</td>
+                <td className="amount" style={{ textAlign: 'right' }}>{s.openingDr > 0 ? formatPKR(s.openingDr) : '0.00'}</td>
+                <td className="amount" style={{ textAlign: 'right' }}>{s.openingCr > 0 ? formatPKR(s.openingCr) : '0.00'}</td>
+                <td className="amount" style={{ textAlign: 'right', color: openBal >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatPKR(Math.abs(openBal))} {openBal >= 0 ? 'Dr' : 'Cr'}</td>
+              </tr>
+              {data.entries.map((e, i) => (
+                <tr key={i}>
+                  <td style={{ whiteSpace: 'nowrap', fontSize: '0.78rem' }}>{formatDate(e.date)}</td>
+                  <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{e.voucher}</td>
+                  <td style={{ fontSize: '0.82rem' }}>{e.particulars}</td>
+                  <td className="amount" style={{ textAlign: 'right', fontWeight: 600, color: e.debit > 0 ? 'var(--green)' : 'var(--text-muted)' }}>{e.debit > 0 ? formatPKR(e.debit) : '0.00'}</td>
+                  <td className="amount" style={{ textAlign: 'right', fontWeight: 600, color: e.credit > 0 ? 'var(--red)' : 'var(--text-muted)' }}>{e.credit > 0 ? formatPKR(e.credit) : '0.00'}</td>
+                  <td className="amount" style={{ textAlign: 'right', fontWeight: 700, color: e.balanceType === 'Dr' ? 'var(--green)' : 'var(--red)' }}>{formatPKR(e.balance)} {e.balanceType}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: 'var(--glass)', fontWeight: 800 }}>
+                <td colSpan={3} style={{ textAlign: 'right', fontSize: '0.9rem' }}>Total</td>
+                <td className="amount" style={{ textAlign: 'right', fontSize: '0.9rem', borderTop: '2px solid var(--border)' }}>{formatPKR(s.totalDr)}</td>
+                <td className="amount" style={{ textAlign: 'right', fontSize: '0.9rem', borderTop: '2px solid var(--border)' }}>{formatPKR(s.totalCr)}</td>
+                <td className="amount" style={{ textAlign: 'right', fontSize: '0.9rem', borderTop: '2px solid var(--border)', color: s.closingType === 'Dr' ? 'var(--green)' : 'var(--red)' }}>{formatPKR(s.closingBalance)} {s.closingType}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginTop: 16 }}>
+          {[{ label: 'Opening Dr', value: formatPKR(s.openingDr) }, { label: 'Opening Cr', value: formatPKR(s.openingCr) }, { label: 'Transaction Dr', value: formatPKR(s.transactionDr) }, { label: 'Transaction Cr', value: formatPKR(s.transactionCr) }, { label: 'Balance', value: `${formatPKR(s.closingBalance)} ${s.closingType}` }].map((item, i) => (
+            <div key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>{item.label}</div>
+              <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  };
+
   const hasData = data !== null;
-  const isCustomObj = ['profit-loss', 'balance-sheet', 'trial-balance'].includes(selectedReport);
-  const canExport = hasData && (isRokar ? !!data?.entries : (isCustomObj ? !Array.isArray(data) && data : Array.isArray(data) && data.length > 0));
+  const isCustomObj = ['profit-loss', 'balance-sheet', 'trial-balance', 'general-ledger'].includes(selectedReport);
+  const canExport = hasData && (isRokar ? !!data?.entries : isLedger ? !!data?.party : (isCustomObj ? !Array.isArray(data) && data : Array.isArray(data) && data.length > 0));
 
   return (
     <div className="fade-in">
@@ -684,17 +874,53 @@ export default function Reports() {
         {currentType?.needsAsOn && (
           <div className="form-group"><label>As On — بتاریخ</label><input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
         )}
+        {currentType?.needsParty && (
+          <>
+            <div className="form-group" style={{ minWidth: 130 }}>
+              <label>Party Type — قسم</label>
+              <select value={partyType} onChange={e => { setPartyType(e.target.value); setPartyId(''); }}>
+                <option value="Buyer">Buyer — خریدار</option>
+                <option value="Supplier">Supplier — سپلائر</option>
+              </select>
+            </div>
+            <div className="form-group" style={{ minWidth: 250 }}>
+              <label>Party — فریق</label>
+              <SearchableSelect
+                options={(partyType === 'Buyer' ? buyers : suppliers).map(p => ({
+                  value: String(p.id),
+                  label: p.name,
+                  labelUrdu: p.name_urdu || '',
+                  searchText: `${p.name} ${p.name_urdu || ''} ${p.phone || ''}`,
+                }))}
+                value={partyId}
+                onChange={(v) => setPartyId(v)}
+                placeholder="Search party..."
+              />
+            </div>
+          </>
+        )}
+        {currentType?.needsProduct && (
+          <div className="form-group" style={{ minWidth: 200 }}>
+            <label>Product — پروڈکٹ</label>
+            <select value={productId} onChange={e => setProductId(e.target.value)}>
+              <option value="">All Products — تمام</option>
+              {products.map(p => (
+                <option key={p.id} value={p.id}>{p.name}{p.name_urdu ? ' — ' + p.name_urdu : ''}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <button className="btn btn-primary" onClick={generate} style={{ alignSelf: 'flex-end' }}>Generate Report</button>
       </div>
 
-      {/* Report output */}
       {selectedReport === 'profit-loss'   && renderProfitLoss()}
       {selectedReport === 'balance-sheet' && renderBalanceSheet()}
       {selectedReport === 'trial-balance' && renderTrialBalance()}
       {isRokar                            && renderRokarReport()}
-      {!isCustomObj && !isRokar           && renderTableReport()}
+      {isLedger                           && renderGeneralLedger()}
+      {!isCustomObj && !isRokar && !isLedger && renderTableReport()}
 
-      {hasData && Array.isArray(data) && data.length === 0 && !isCustomObj && !isRokar && (
+      {hasData && Array.isArray(data) && data.length === 0 && !isCustomObj && !isRokar && !isLedger && (
         <div className="empty-state" style={{ padding: '40px 20px' }}>
           <p style={{ fontSize: '0.9rem' }}>No data found for the selected criteria</p>
           <p style={{ fontSize: '0.8rem', marginTop: 4 }}>Try adjusting the date range or report type</p>

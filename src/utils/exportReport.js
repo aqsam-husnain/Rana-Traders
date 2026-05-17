@@ -796,3 +796,234 @@ export async function exportToCSV({ columns, rows, fileName }) {
   );
   return result?.success || false;
 }
+
+/**
+ * Export General Ledger PDF — clean bordered style matching sample PDF
+ */
+export async function exportGeneralLedgerPDF({ party, entries, summary, dateRange, fileName }) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  registerUrduFont(doc);
+  const pw = doc.internal.pageSize.getWidth();
+  const ph = doc.internal.pageSize.getHeight();
+
+  // Logo
+  try { const logo = await getLogoBase64(160); if (logo) doc.addImage(logo, 'PNG', 14, 6, 22, 22); } catch(e) {}
+
+  // Company header
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(0, 0, 128);
+  doc.text('Rana Traders', 40, 14);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(0, 0, 0);
+  doc.text('General Ledger', 40, 20);
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(0, 0, 128);
+  doc.text(`From: ${dateRange}`, 40, 26);
+
+  // Page info (top right)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(0);
+  doc.text(`Print As On:  ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`, pw - 14, 14, { align: 'right' });
+  doc.text(new Date().toLocaleTimeString('en-PK'), pw - 14, 19, { align: 'right' });
+
+  // Party info
+  let y = 34;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(0);
+  doc.text(party.name + (party.name_urdu ? '' : ''), 14, y);
+  if (party.name_urdu) {
+    doc.setFont('Amiri', 'normal'); doc.setFontSize(10);
+    doc.text(party.name_urdu, 14 + doc.getTextWidth(party.name + '  '), y);
+  }
+  y += 6;
+
+  // Build table data
+  const s = summary;
+  const openBal = s.openingDr - s.openingCr;
+  const head = [['Date', 'Voucher #', 'Particulars', 'Debit / بنام', 'Credit / جمع', 'Balance / بقایا']];
+  const body = [];
+  body.push(['', '', 'Opening Balance', s.openingDr > 0 ? fmtNum(s.openingDr) : '0.00', s.openingCr > 0 ? fmtNum(s.openingCr) : '0.00', fmtNum(Math.abs(openBal)) + '  ' + (openBal >= 0 ? 'Dr' : 'Cr')]);
+  entries.forEach(e => {
+    body.push([fmtDate(e.date), e.voucher, e.particulars, e.debit > 0 ? fmtNum(e.debit) : '0.00', e.credit > 0 ? fmtNum(e.credit) : '0.00', fmtNum(e.balance) + '  ' + e.balanceType]);
+  });
+  body.push(['', '', 'Total', fmtNum(s.totalDr), fmtNum(s.totalCr), fmtNum(s.closingBalance) + '  ' + s.closingType]);
+
+  autoTable(doc, {
+    startY: y,
+    head, body,
+    styles: { fontSize: 7.5, cellPadding: 2.5, lineColor: [0,0,0], lineWidth: 0.15, textColor: [0,0,0], font: 'helvetica', overflow: 'linebreak' },
+    headStyles: { fillColor: [255,255,255], textColor: [0,0,0], fontStyle: 'bold', fontSize: 7.5, lineWidth: 0.3 },
+    columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 28 }, 2: { cellWidth: 'auto' }, 3: { halign: 'right', cellWidth: 28 }, 4: { halign: 'right', cellWidth: 28 }, 5: { halign: 'right', cellWidth: 32 } },
+    margin: { left: 14, right: 14 },
+    didParseCell: (d) => {
+      if (d.section === 'head' && hasUrdu(getCellText(d))) { d.cell.styles.font = 'Amiri'; d.cell.styles.fontStyle = 'normal'; d.cell.styles.fontSize = 8.5; }
+      if (d.section === 'body') {
+        if (d.row.index === 0 || d.row.index === body.length - 1) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = [230,230,230]; }
+        if (hasUrdu(getCellText(d))) { d.cell.styles.font = 'Amiri'; d.cell.styles.fontStyle = 'normal'; d.cell.styles.fontSize = 8; }
+      }
+    },
+    didDrawPage: () => {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100);
+      doc.text(`Page ${doc.internal.getNumberOfPages()}`, pw - 14, ph - 5, { align: 'right' });
+    },
+  });
+
+  // Summary block below table
+  const finalY = doc.lastAutoTable.finalY + 8;
+  const labels = [['Opening Dr', fmtNum(s.openingDr)], ['Opening Cr', fmtNum(s.openingCr)], ['Transaction Dr', fmtNum(s.transactionDr)], ['Transaction Cr', fmtNum(s.transactionCr)], ['Balance', fmtNum(s.closingBalance) + '  ' + s.closingType]];
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(0);
+  labels.forEach((lbl, i) => {
+    doc.text(lbl[0], pw - 80, finalY + i * 5);
+    doc.text(lbl[1], pw - 14, finalY + i * 5, { align: 'right' });
+  });
+
+  const pdfOutput = doc.output('arraybuffer');
+  const base64 = arrayBufferToBase64(pdfOutput);
+  const result = await window.api.saveFileDialog(`${fileName || 'GeneralLedger'}.pdf`, [{ name: 'PDF', extensions: ['pdf'] }], base64);
+  return result?.success || false;
+}
+
+/**
+ * Export Profit & Loss PDF — hierarchical income statement matching sample PDF
+ */
+export async function exportProfitLossPDF({ data, dateRange, fileName }) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  registerUrduFont(doc);
+  const pw = doc.internal.pageSize.getWidth();
+
+  // Logo
+  try { const logo = await getLogoBase64(160); if (logo) doc.addImage(logo, 'PNG', 14, 6, 22, 22); } catch(e) {}
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(0, 0, 128);
+  doc.text('Rana Traders', 40, 14);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(0, 0, 0);
+  doc.text('Profit / Loss Accounts', 40, 20);
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(0, 0, 128);
+  doc.text(`From: ${dateRange}`, 40, 26);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(0);
+  doc.text(`Print As On:  ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`, pw - 14, 14, { align: 'right' });
+  doc.text(new Date().toLocaleTimeString('en-PK'), pw - 14, 19, { align: 'right' });
+
+  // Build body rows
+  const body = [];
+  const hlSet = new Set();
+  const subHlSet = new Set();
+  const totalBarSet = new Set();
+  // Revenue
+  hlSet.add(0); body.push(['Revenue — آمدنی', '']);
+  if (data.revenue.items.length) {
+    subHlSet.add(body.length); body.push(['  Products Sale A/c — فروخت کھاتے', '']);
+    data.revenue.items.forEach(r => body.push(['    ' + r.name + (r.name_urdu ? ' / ' + r.name_urdu : ''), fmtNum(r.amount)]));
+    body.push(['', fmtNum(data.revenue.total)]);
+  }
+  totalBarSet.add(body.length); body.push(['Revenue', fmtNum(data.revenue.total)]);
+  body.push(['', '']);
+  // Expense
+  hlSet.add(body.length); body.push(['Expense — اخراجات', '']);
+  if (data.businessExpenses.items.length) {
+    subHlSet.add(body.length); body.push(['  Business Expenses — کاروباری اخراجات', '']);
+    data.businessExpenses.items.forEach(e => body.push(['    ' + e.name, fmtNum(e.amount)]));
+    body.push(['', fmtNum(data.businessExpenses.total)]);
+  }
+  if (data.cogs.items.length) {
+    subHlSet.add(body.length); body.push(['  Products COGs A/c — لاگت کھاتے', '']);
+    data.cogs.items.forEach(c => body.push(['    ' + c.name + (c.name_urdu ? ' / ' + c.name_urdu : ''), fmtNum(c.amount)]));
+    body.push(['', fmtNum(data.cogs.total)]);
+  }
+  totalBarSet.add(body.length); body.push(['Expense', fmtNum(data.totalExpense)]);
+  body.push(['', '']);
+  totalBarSet.add(body.length); body.push([data.netProfit >= 0 ? 'Net Profit — خالص نفع' : 'Net Loss — خالص نقصان', fmtNum(Math.abs(data.netProfit))]);
+
+  autoTable(doc, {
+    startY: 34,
+    head: [['Account Description', 'Amount']],
+    body,
+    styles: { fontSize: 8, cellPadding: 3, lineColor: [0,0,0], lineWidth: 0.15, textColor: [0,0,0], font: 'helvetica', overflow: 'linebreak' },
+    headStyles: { fillColor: [255,255,255], textColor: [0,0,0], fontStyle: 'bold', lineWidth: 0.3 },
+    columnStyles: { 0: { cellWidth: 'auto' }, 1: { halign: 'right', cellWidth: 40 } },
+    margin: { left: 30, right: 30 },
+    didParseCell: (d) => {
+      if (d.section === 'body') {
+        if (hlSet.has(d.row.index)) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fontSize = 9; d.cell.styles.textColor = [0,0,0]; }
+        if (subHlSet.has(d.row.index)) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.textDecoration = 'underline'; }
+        if (totalBarSet.has(d.row.index)) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = [210,210,210]; d.cell.styles.fontSize = 9; }
+        // Amiri is only registered as 'normal' — must reset fontStyle to avoid Amiri-Bold lookup failure
+        if (hasUrdu(getCellText(d))) { d.cell.styles.font = 'Amiri'; d.cell.styles.fontStyle = 'normal'; d.cell.styles.fontSize = 9; }
+      }
+      if (d.section === 'head' && hasUrdu(getCellText(d))) { d.cell.styles.font = 'Amiri'; d.cell.styles.fontStyle = 'normal'; }
+    },
+    didDrawPage: () => {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100);
+      doc.text('Rana Traders', 14, doc.internal.pageSize.getHeight() - 5);
+      doc.text(`Page ${doc.internal.getNumberOfPages()}`, pw - 14, doc.internal.pageSize.getHeight() - 5, { align: 'right' });
+    },
+  });
+
+  const pdfOutput = doc.output('arraybuffer');
+  const base64 = arrayBufferToBase64(pdfOutput);
+  const result = await window.api.saveFileDialog(`${fileName || 'ProfitLoss'}.pdf`, [{ name: 'PDF', extensions: ['pdf'] }], base64);
+  return result?.success || false;
+}
+
+/**
+ * Export Receivable/Payable PDF — clean bordered style matching sample PDF
+ */
+export async function exportReceivablePayablePDF({ data, reportType, asOnDate, fileName }) {
+  const isPayable = reportType === 'supplier-outstanding';
+  const title = isPayable ? 'List of Payables' : 'List of Receivables';
+  const titleUrdu = isPayable ? '\u0648\u0627\u062c\u0628\u0627\u062a \u06a9\u06cc \u0641\u06c1\u0631\u0633\u062a' : '\u0648\u0635\u0648\u0644\u06cc\u0627\u062a \u06a9\u06cc \u0641\u06c1\u0631\u0633\u062a';
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  registerUrduFont(doc);
+  const pw = doc.internal.pageSize.getWidth();
+
+  try { const logo = await getLogoBase64(160); if (logo) doc.addImage(logo, 'PNG', 30, 6, 22, 22); } catch(e) {}
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(0, 0, 128);
+  doc.text('Rana Traders', 56, 14);
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.setTextColor(0, 0, 128);
+  doc.text(`${title} Upto :  ${asOnDate}`, 56, 22);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(0);
+  doc.text(`Print As On:  ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`, pw - 14, 10, { align: 'right' });
+  doc.text(new Date().toLocaleTimeString('en-PK'), pw - 14, 15, { align: 'right' });
+
+  // Build body
+  const body = [];
+  body.push(['Customers', '']); // Group header
+  let subTotal = 0;
+  data.forEach(row => {
+    const bal = row.balance || 0;
+    subTotal += bal;
+    const amtStr = isPayable ? `(${fmtNum(Math.abs(bal))})` : fmtNum(bal);
+    const nameStr = row.name + (row.name_urdu ? ' / ' + row.name_urdu : '');
+    body.push([nameStr, amtStr]);
+  });
+  body.push(['Sub-Total :', isPayable ? `(${fmtNum(Math.abs(subTotal))})` : fmtNum(subTotal)]);
+  body.push(['Grand Total', isPayable ? `(${fmtNum(Math.abs(subTotal))})` : fmtNum(subTotal)]);
+
+  autoTable(doc, {
+    startY: 30,
+    head: [['Account Description', 'Amount']],
+    body,
+    styles: { fontSize: 8, cellPadding: 3, lineColor: [0,0,0], lineWidth: 0.15, textColor: [0,0,0], font: 'helvetica' },
+    headStyles: { fillColor: [255,255,255], textColor: [0,0,0], fontStyle: 'bold', lineWidth: 0.3 },
+    columnStyles: { 0: { cellWidth: 'auto' }, 1: { halign: 'right', cellWidth: 40 } },
+    margin: { left: 30, right: 30 },
+    didParseCell: (d) => {
+      if (d.section === 'body') {
+        if (d.row.index === 0) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fontSize = 9; } // Customers header
+        if (d.row.index === body.length - 2) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = [240,240,240]; } // Sub-Total
+        if (d.row.index === body.length - 1) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = [200,200,200]; d.cell.styles.fontSize = 9; } // Grand Total
+        if (hasUrdu(getCellText(d))) { d.cell.styles.font = 'Amiri'; d.cell.styles.fontStyle = 'normal'; d.cell.styles.fontSize = 9; }
+      }
+    },
+    didDrawPage: () => {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100);
+      doc.text('Rana Traders', 14, doc.internal.pageSize.getHeight() - 5);
+      doc.text(`Page ${doc.internal.getNumberOfPages()}`, pw - 14, doc.internal.pageSize.getHeight() - 5, { align: 'right' });
+    },
+  });
+
+  const pdfOutput = doc.output('arraybuffer');
+  const base64 = arrayBufferToBase64(pdfOutput);
+  const result = await window.api.saveFileDialog(`${fileName || title.replace(/ /g,'_')}.pdf`, [{ name: 'PDF', extensions: ['pdf'] }], base64);
+  return result?.success || false;
+}
+
+// Internal helpers
+function fmtNum(n) { return Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmtDate(d) { if (!d) return ''; const dt = new Date(typeof d==='string' ? d.split('T')[0]+'T00:00:00' : d); return isNaN(dt) ? '' : dt.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'2-digit' }); }

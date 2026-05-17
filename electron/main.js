@@ -6,6 +6,12 @@ const { initDatabase, getDb, closeDb, getDbPath, saveDb, getRawDb, resetDatabase
 
 let mainWindow;
 
+// Simple number formatter for backend use (ledger particulars)
+function formatNumber2(num) {
+  if (num == null || isNaN(num)) return '0';
+  return Number(num).toLocaleString('en-PK', { maximumFractionDigits: 2 });
+}
+
 function getMacAddresses() {
   const interfaces = os.networkInterfaces();
   const macs = [];
@@ -389,7 +395,42 @@ function registerIpcHandlers() {
     if (type === 'stock') return queryAll("SELECT p.id,p.name,p.name_urdu,p.unit,COALESCE(p.opening_stock,0) as opening_stock,COALESCE((SELECT SUM(quantity) FROM purchases WHERE product_id=p.id),0) as purchased,COALESCE((SELECT SUM(quantity) FROM sales WHERE product_id=p.id),0) as sold,COALESCE(p.opening_stock,0)+COALESCE((SELECT SUM(quantity) FROM purchases WHERE product_id=p.id),0)-COALESCE((SELECT SUM(quantity) FROM sales WHERE product_id=p.id),0) as stock FROM products p WHERE p.status='Active'");
     if (type === 'buyer-outstanding') return queryAll("SELECT b.id,b.name,b.name_urdu,b.phone,b.opening_balance,COALESCE((SELECT SUM(net_amount) FROM sales WHERE buyer_id=b.id),0) as total_sales,COALESCE((SELECT SUM(amount) FROM payments WHERE party_type='Buyer' AND party_id=b.id AND type='Received'),0)+COALESCE((SELECT SUM(amount_paid) FROM sales WHERE buyer_id=b.id),0) as total_paid,b.opening_balance+COALESCE((SELECT SUM(net_amount) FROM sales WHERE buyer_id=b.id),0)-COALESCE((SELECT SUM(amount) FROM payments WHERE party_type='Buyer' AND party_id=b.id AND type='Received'),0)-COALESCE((SELECT SUM(amount_paid) FROM sales WHERE buyer_id=b.id),0) as balance FROM buyers b WHERE b.status='Active' AND b.type='Regular' ORDER BY balance DESC");
     if (type === 'supplier-outstanding') return queryAll("SELECT sp.id,sp.name,sp.name_urdu,sp.phone,sp.opening_balance,COALESCE((SELECT SUM(net_amount) FROM purchases WHERE supplier_id=sp.id),0) as total_purchases,COALESCE((SELECT SUM(amount) FROM payments WHERE party_type='Supplier' AND party_id=sp.id AND type='Paid'),0)+COALESCE((SELECT SUM(amount_paid) FROM purchases WHERE supplier_id=sp.id),0) as total_paid,sp.opening_balance+COALESCE((SELECT SUM(net_amount) FROM purchases WHERE supplier_id=sp.id),0)-COALESCE((SELECT SUM(amount) FROM payments WHERE party_type='Supplier' AND party_id=sp.id AND type='Paid'),0)-COALESCE((SELECT SUM(amount_paid) FROM purchases WHERE supplier_id=sp.id),0) as balance FROM suppliers sp WHERE sp.status='Active' AND sp.type='Regular' ORDER BY balance DESC");
-    if (type === 'profit-loss') return { totalSales: queryOne("SELECT COALESCE(SUM(net_amount),0) as t FROM sales")?.t || 0, totalPurchases: queryOne("SELECT COALESCE(SUM(net_amount),0) as t FROM purchases")?.t || 0, totalCommission: (queryOne("SELECT COALESCE(SUM(commission),0) as t FROM sales")?.t || 0) + (queryOne("SELECT COALESCE(SUM(commission),0) as t FROM purchases")?.t || 0) };
+    if (type === 'profit-loss') {
+      const df = f?.dateFrom || '1900-01-01';
+      const dt = f?.dateTo || '2999-12-31';
+      const dateCond = `substr(date,1,10)>='${df}' AND substr(date,1,10)<='${dt}'`;
+      // Revenue — product-wise sales
+      const prods = queryAll("SELECT p.id,p.name,p.name_urdu FROM products p WHERE p.status='Active' ORDER BY p.name");
+      const revenueItems = prods.map(pr => {
+        const saleVal = queryOne(`SELECT COALESCE(SUM(net_amount),0) as v FROM sales WHERE product_id=? AND ${dateCond}`, [pr.id])?.v || 0;
+        return { name: pr.name + ' Sale A/c', name_urdu: pr.name_urdu || '', amount: saleVal };
+      }).filter(r => r.amount > 0);
+      const totalRevenue = revenueItems.reduce((s, r) => s + r.amount, 0);
+      // Business Expenses (daily kharcha)
+      const expenseCategories = queryAll(`SELECT category, COALESCE(SUM(amount),0) as total FROM expenses WHERE ${dateCond} GROUP BY category ORDER BY category`);
+      const businessExpenseItems = expenseCategories.map(e => ({ name: e.category, name_urdu: '', amount: e.total }));
+      const totalBusinessExpenses = businessExpenseItems.reduce((s, e) => s + e.amount, 0);
+      // Products COGs — product-wise purchases
+      const cogsItems = prods.map(pr => {
+        const purchVal = queryOne(`SELECT COALESCE(SUM(net_amount),0) as v FROM purchases WHERE product_id=? AND ${dateCond}`, [pr.id])?.v || 0;
+        return { name: pr.name + ' Expense A/c', name_urdu: pr.name_urdu || '', amount: purchVal };
+      }).filter(r => r.amount > 0);
+      const totalCOGs = cogsItems.reduce((s, r) => s + r.amount, 0);
+      const totalExpense = totalBusinessExpenses + totalCOGs;
+      const netProfit = totalRevenue - totalExpense;
+      // Also include legacy totals for backward compat
+      const totalSales = queryOne(`SELECT COALESCE(SUM(net_amount),0) as t FROM sales WHERE ${dateCond}`)?.t || 0;
+      const totalPurchases = queryOne(`SELECT COALESCE(SUM(net_amount),0) as t FROM purchases WHERE ${dateCond}`)?.t || 0;
+      const totalCommission = (queryOne(`SELECT COALESCE(SUM(commission),0) as t FROM sales WHERE ${dateCond}`)?.t || 0) + (queryOne(`SELECT COALESCE(SUM(commission),0) as t FROM purchases WHERE ${dateCond}`)?.t || 0);
+      return {
+        totalSales, totalPurchases, totalCommission,
+        revenue: { items: revenueItems, total: totalRevenue },
+        businessExpenses: { items: businessExpenseItems, total: totalBusinessExpenses },
+        cogs: { items: cogsItems, total: totalCOGs },
+        totalExpense,
+        netProfit,
+      };
+    }
     if (type === 'commission') {
       return queryAll("SELECT s.date,'Sale' as type,b.name as party_name,b.name_urdu as party_name_urdu,pr.name as product_name,pr.name_urdu as product_name_urdu,s.quantity,s.total,s.commission FROM sales s LEFT JOIN buyers b ON s.buyer_id=b.id LEFT JOIN products pr ON s.product_id=pr.id WHERE substr(s.date,1,10)>=? AND substr(s.date,1,10)<=? AND s.commission>0 UNION ALL SELECT pu.date,'Purchase' as type,sp.name as party_name,sp.name_urdu as party_name_urdu,pr.name as product_name,pr.name_urdu as product_name_urdu,pu.quantity,pu.total,pu.commission FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id LEFT JOIN products pr ON pu.product_id=pr.id WHERE substr(pu.date,1,10)>=? AND substr(pu.date,1,10)<=? AND pu.commission>0 ORDER BY date DESC", [f?.dateFrom, f?.dateTo, f?.dateFrom, f?.dateTo]);
     }
@@ -397,7 +438,8 @@ function registerIpcHandlers() {
     // ─── Daily Stock Valuation Report (date-range filtered) ───
     if (type === 'stock-valuation') {
       const df = f?.dateFrom || '1900-01-01', dt = f?.dateTo || '2999-12-31';
-      const products = queryAll("SELECT p.id,p.name,p.name_urdu,p.unit,COALESCE(p.opening_stock,0) as opening_stock FROM products p WHERE p.status='Active' ORDER BY p.name");
+      const pidFilter = f?.productId ? ' AND p.id=' + parseInt(f.productId) : '';
+      const products = queryAll("SELECT p.id,p.name,p.name_urdu,p.unit,COALESCE(p.opening_stock,0) as opening_stock FROM products p WHERE p.status='Active'" + pidFilter + " ORDER BY p.name");
       return products.map(prod => {
         // Purchases before dateFrom = part of opening; within range = period purchases
         const prePurchQty = queryOne("SELECT COALESCE(SUM(quantity),0) as q FROM purchases WHERE product_id=? AND substr(date,1,10)<?", [prod.id, df])?.q || 0;
@@ -532,6 +574,169 @@ function registerIpcHandlers() {
     }
 
     return [];
+  });
+
+  // General Ledger Report — full party account statement
+  ipcMain.handle('get-general-ledger', (_e, partyType, partyId, f) => {
+    const df = f?.dateFrom || '1900-01-01';
+    const dt = f?.dateTo || '2999-12-31';
+    const isBuyer = partyType === 'Buyer';
+    const party = isBuyer
+      ? queryOne('SELECT * FROM buyers WHERE id=?', [partyId])
+      : queryOne('SELECT * FROM suppliers WHERE id=?', [partyId]);
+    if (!party) return { party: null, entries: [], summary: {} };
+
+    // Opening balance = party.opening_balance + all transactions BEFORE dateFrom
+    let openingDr = 0, openingCr = 0;
+    if (isBuyer) {
+      const ob = party.opening_balance || 0;
+      if (ob > 0) openingDr = ob; else openingCr = Math.abs(ob);
+      // Sales before dateFrom
+      const preSales = queryOne(`SELECT COALESCE(SUM(net_amount),0) as t FROM sales WHERE buyer_id=? AND substr(date,1,10)<'${df}'`, [partyId])?.t || 0;
+      openingDr += preSales;
+      // Payments received before dateFrom (standalone + at-sale)
+      const prePaid = queryOne(`SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE party_type='Buyer' AND party_id=? AND type='Received' AND substr(date,1,10)<'${df}'`, [partyId])?.t || 0;
+      const preSalePaid = queryOne(`SELECT COALESCE(SUM(amount_paid),0) as t FROM sales WHERE buyer_id=? AND amount_paid>0 AND substr(date,1,10)<'${df}'`, [partyId])?.t || 0;
+      openingCr += prePaid + preSalePaid;
+    } else {
+      const ob = party.opening_balance || 0;
+      if (ob > 0) openingCr = ob; else openingDr = Math.abs(ob);
+      // Purchases before dateFrom
+      const prePurch = queryOne(`SELECT COALESCE(SUM(net_amount),0) as t FROM purchases WHERE supplier_id=? AND substr(date,1,10)<'${df}'`, [partyId])?.t || 0;
+      openingCr += prePurch;
+      // Payments paid before dateFrom (standalone + at-purchase)
+      const prePaid = queryOne(`SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE party_type='Supplier' AND party_id=? AND type='Paid' AND substr(date,1,10)<'${df}'`, [partyId])?.t || 0;
+      const prePurchPaid = queryOne(`SELECT COALESCE(SUM(amount_paid),0) as t FROM purchases WHERE supplier_id=? AND amount_paid>0 AND substr(date,1,10)<'${df}'`, [partyId])?.t || 0;
+      openingDr += prePaid + prePurchPaid;
+    }
+
+    // Transactions within date range
+    const entries = [];
+    if (isBuyer) {
+      // Sales in range
+      const sales = queryAll(`SELECT s.id, s.date, s.net_amount, s.quantity, s.rate, s.amount_paid, s.payment_mode, s.notes,
+        p.name as product_name, p.name_urdu as product_name_urdu, p.unit
+        FROM sales s LEFT JOIN products p ON s.product_id=p.id
+        WHERE s.buyer_id=? AND substr(s.date,1,10)>=? AND substr(s.date,1,10)<=?
+        ORDER BY s.date, s.id`, [partyId, df, dt]);
+      sales.forEach(s => {
+        const yr = new Date(s.date).getFullYear();
+        const mn = new Date(s.date).getMonth() + 1;
+        const dy = new Date(s.date).getDate();
+        entries.push({
+          date: s.date,
+          voucher: `SV-${yr}-${mn}-${s.id}`,
+          particulars: `SOLD ${formatNumber2(s.quantity)} ${s.unit || 'Kg'} OF ${s.product_name}${s.product_name_urdu ? ' / ' + s.product_name_urdu : ''} @ ${formatNumber2(s.rate)}`,
+          debit: s.net_amount,
+          credit: 0,
+          notes: s.notes || '',
+        });
+        // If amount_paid at sale time
+        if (s.amount_paid > 0) {
+          entries.push({
+            date: s.date,
+            voucher: `SV-${yr}-${mn}-${s.id}`,
+            particulars: `Cash received with sale (${s.payment_mode || 'Cash'})`,
+            debit: 0,
+            credit: s.amount_paid,
+            notes: '',
+          });
+        }
+      });
+      // Standalone payments in range
+      const payments = queryAll(`SELECT id, date, amount, type, mode, notes FROM payments
+        WHERE party_type='Buyer' AND party_id=? AND substr(date,1,10)>=? AND substr(date,1,10)<=?
+        ORDER BY date, id`, [partyId, df, dt]);
+      payments.forEach(p => {
+        const yr = new Date(p.date).getFullYear();
+        const mn = new Date(p.date).getMonth() + 1;
+        const vPrefix = p.type === 'Received' ? 'CBV' : 'CPV';
+        entries.push({
+          date: p.date,
+          voucher: `${vPrefix}-${yr}-${mn}-${p.id}`,
+          particulars: `${p.type === 'Received' ? 'Cash / Payment Received' : 'Cash / Payment Paid'}${p.mode ? ' (' + p.mode + ')' : ''}${p.notes ? ' - ' + p.notes : ''}`,
+          debit: p.type === 'Paid' ? p.amount : 0,
+          credit: p.type === 'Received' ? p.amount : 0,
+          notes: p.notes || '',
+        });
+      });
+    } else {
+      // Purchases in range
+      const purchases = queryAll(`SELECT pu.id, pu.date, pu.net_amount, pu.quantity, pu.rate, pu.amount_paid, pu.payment_mode, pu.notes,
+        p.name as product_name, p.name_urdu as product_name_urdu, p.unit
+        FROM purchases pu LEFT JOIN products p ON pu.product_id=p.id
+        WHERE pu.supplier_id=? AND substr(pu.date,1,10)>=? AND substr(pu.date,1,10)<=?
+        ORDER BY pu.date, pu.id`, [partyId, df, dt]);
+      purchases.forEach(pu => {
+        const yr = new Date(pu.date).getFullYear();
+        const mn = new Date(pu.date).getMonth() + 1;
+        entries.push({
+          date: pu.date,
+          voucher: `PV-${yr}-${mn}-${pu.id}`,
+          particulars: `PURCHASED ${formatNumber2(pu.quantity)} ${pu.unit || 'Kg'} OF ${pu.product_name}${pu.product_name_urdu ? ' / ' + pu.product_name_urdu : ''} @ ${formatNumber2(pu.rate)}`,
+          debit: 0,
+          credit: pu.net_amount,
+          notes: pu.notes || '',
+        });
+        if (pu.amount_paid > 0) {
+          entries.push({
+            date: pu.date,
+            voucher: `PV-${yr}-${mn}-${pu.id}`,
+            particulars: `Cash paid with purchase (${pu.payment_mode || 'Cash'})`,
+            debit: pu.amount_paid,
+            credit: 0,
+            notes: '',
+          });
+        }
+      });
+      // Standalone payments in range
+      const payments = queryAll(`SELECT id, date, amount, type, mode, notes FROM payments
+        WHERE party_type='Supplier' AND party_id=? AND substr(date,1,10)>=? AND substr(date,1,10)<=?
+        ORDER BY date, id`, [partyId, df, dt]);
+      payments.forEach(p => {
+        const yr = new Date(p.date).getFullYear();
+        const mn = new Date(p.date).getMonth() + 1;
+        const vPrefix = p.type === 'Paid' ? 'CPV' : 'CBV';
+        entries.push({
+          date: p.date,
+          voucher: `${vPrefix}-${yr}-${mn}-${p.id}`,
+          particulars: `${p.type === 'Paid' ? 'Cash / Payment Paid' : 'Cash / Payment Received'}${p.mode ? ' (' + p.mode + ')' : ''}${p.notes ? ' - ' + p.notes : ''}`,
+          debit: p.type === 'Paid' ? p.amount : 0,
+          credit: p.type === 'Received' ? p.amount : 0,
+          notes: p.notes || '',
+        });
+      });
+    }
+
+    // Sort entries by date
+    entries.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+    // Calculate running balance and transaction totals
+    let runningDr = openingDr, runningCr = openingCr;
+    let transactionDr = 0, transactionCr = 0;
+    entries.forEach(e => {
+      transactionDr += e.debit;
+      transactionCr += e.credit;
+      runningDr = openingDr + transactionDr;
+      runningCr = openingCr + transactionCr;
+      const bal = runningDr - runningCr;
+      e.balance = Math.abs(bal);
+      e.balanceType = bal >= 0 ? 'Dr' : 'Cr';
+    });
+
+    const closingBal = (openingDr + transactionDr) - (openingCr + transactionCr);
+    return {
+      party,
+      entries,
+      summary: {
+        openingDr, openingCr,
+        transactionDr, transactionCr,
+        totalDr: openingDr + transactionDr,
+        totalCr: openingCr + transactionCr,
+        closingBalance: Math.abs(closingBal),
+        closingType: closingBal >= 0 ? 'Dr' : 'Cr',
+      },
+    };
   });
 
   // Backup

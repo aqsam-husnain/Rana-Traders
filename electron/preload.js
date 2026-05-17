@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('api', {
   getRokarReport: (f) => ipcRenderer.invoke('get-rokar-report', f),
   // Reports
   getReport: (type, f) => ipcRenderer.invoke('get-report', type, f),
+  getGeneralLedger: (partyType, partyId, f) => ipcRenderer.invoke('get-general-ledger', partyType, partyId, f),
   // Backup & Restore
   backupDatabase: () => ipcRenderer.invoke('backup-database'),
   restoreDatabase: () => ipcRenderer.invoke('restore-database'),
