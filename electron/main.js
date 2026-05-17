@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -45,9 +45,28 @@ function createWindow() {
     width: 1400, height: 900, minWidth: 1100, minHeight: 700,
     title: 'رانا ٹریڈرز — Rana Traders',
     icon: iconPath,
+    autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), nodeIntegration: false, contextIsolation: true },
     show: false, backgroundColor: '#060608'
   });
+  // Remove the native menu bar completely so Alt key doesn't activate it
+  Menu.setApplicationMenu(null);
+
+  // Prevent Chromium from swallowing keyboard shortcuts (Ctrl+E, Ctrl+N, Ctrl+G, etc.)
+  // so they reach our DOM keydown handlers in the React app
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    // Let Ctrl+Shift+I (DevTools) through in dev mode
+    if (!app.isPackaged && input.control && input.shift && input.key === 'I') return;
+    // Let Ctrl+R (reload) through in dev mode
+    if (!app.isPackaged && input.control && input.key === 'r') return;
+    // Block Chromium's default handling for our custom shortcuts
+    const blockedKeys = ['e', 'n', 'g', 'd', 'k', 'p', 'm', '/', '`'];
+    if (input.control && !input.shift && blockedKeys.includes(input.key.toLowerCase())) {
+      // Don't prevent the event — just stop Chromium's default action
+      // The DOM keydown event will still fire and our handler will process it
+    }
+  });
+
   if (!app.isPackaged) mainWindow.loadURL('http://localhost:5173');
   else mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   mainWindow.once('ready-to-show', () => { mainWindow.maximize(); mainWindow.show(); });

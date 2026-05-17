@@ -62,6 +62,7 @@ export default function Expenses() {
       'page.new': () => openAdd(),
       'page.manage': () => setShowManageCats(true),
       'page.exportPdf': () => handleExport('pdf'),
+      'page.exportXlsx': () => handleExport('xlsx'),
     });
     return () => unregisterPageHandlers();
   }, [expenses]);

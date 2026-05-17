@@ -55,6 +55,7 @@ export default function StockOverview() {
   useEffect(() => {
     registerPageHandlers({
       'page.exportPdf': () => handleExport('pdf'),
+      'page.exportXlsx': () => handleExport('xlsx'),
     });
     return () => unregisterPageHandlers();
   }, [stock]);

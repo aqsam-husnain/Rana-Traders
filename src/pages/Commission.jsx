@@ -28,6 +28,7 @@ export default function Commission() {
       'page.tab2': () => setTab('report'),
       'page.generate': () => loadReport(),
       'page.exportPdf': () => handleExport('pdf'),
+      'page.exportXlsx': () => handleExport('xlsx'),
     });
     return () => unregisterPageHandlers();
   }, [tab, report, dateFrom, dateTo]);

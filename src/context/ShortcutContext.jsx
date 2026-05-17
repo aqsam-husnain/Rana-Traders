@@ -36,8 +36,8 @@ const DEFAULT_BINDINGS = {
   // DayBook-specific
   'daybook.prevDay':  'Alt+Left',
   'daybook.nextDay':  'Alt+Right',
-  'daybook.today':    'Ctrl+T',
-  'daybook.tabToggle':'Ctrl+Tab',
+  'daybook.today':    'Ctrl+D',
+  'daybook.tabToggle':'Ctrl+`',
   // Modal/Form
   'modal.save':       'Ctrl+Enter',
   'modal.fullAmount': 'Ctrl+Shift+F',
@@ -263,6 +263,9 @@ export function ShortcutProvider({ children }) {
   // ── Global keydown handler ──
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Don't fire shortcuts on the login page — no layout means no navigation targets
+      if (!document.querySelector('.app-layout')) return;
+
       // Don't intercept if user is in a text input (unless it's a Ctrl/Alt combo)
       const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
       const hasModifier = e.ctrlKey || e.altKey || e.metaKey;

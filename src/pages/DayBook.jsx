@@ -36,6 +36,7 @@ export default function DayBook() {
       'daybook.today': () => goToday(),
       'daybook.tabToggle': () => setActiveTab(t => t === 'roznamcha' ? 'rokar' : 'roznamcha'),
       'page.exportPdf': () => handleExport('pdf'),
+      'page.exportXlsx': () => handleExport('xlsx'),
     });
     return () => unregisterPageHandlers();
   }, [date, activeTab, entries]);

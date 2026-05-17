@@ -29,9 +29,10 @@ export default function Buyers() {
     registerPageHandlers({
       'page.new': () => { setEditing(null); setForm(emptyForm); setShowForm(true); },
       'page.exportPdf': () => handleExport('pdf'),
+      'page.exportXlsx': () => handleExport('xlsx'),
     });
     return () => unregisterPageHandlers();
-  }, [filtered]);
+  }, [buyers]);
   const load = async () => { const d = await window.api.getBuyers(); setBuyers(d.filter(c => c.type === 'Regular')); };
   const handleSave = async (e) => { e.preventDefault(); if (editing) await window.api.updateBuyer(editing.id, { ...form, type: 'Regular' }); else await window.api.addBuyer({ ...form, type: 'Regular' }); setShowForm(false); setEditing(null); setForm(emptyForm); load(); toast.success(editing ? 'Buyer updated! — خریدار اپ ڈیٹ ہو گیا' : 'Buyer added! — خریدار شامل ہو گیا'); };
   const handleEdit = (c) => { setEditing(c); setForm(c); setShowForm(true); };

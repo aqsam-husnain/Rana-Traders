@@ -143,6 +143,7 @@ export default function Reports() {
     registerPageHandlers({
       'page.generate': () => generate(),
       'page.exportPdf': () => handleExport('pdf'),
+      'page.exportXlsx': () => handleExport('xlsx'),
     });
     return () => unregisterPageHandlers();
   }, [selectedReport, data, dateFrom, dateTo, partyType, partyId, productId]);

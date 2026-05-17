@@ -29,9 +29,10 @@ export default function Suppliers() {
     registerPageHandlers({
       'page.new': () => { setEditing(null); setForm(emptyForm); setShowForm(true); },
       'page.exportPdf': () => handleExport('pdf'),
+      'page.exportXlsx': () => handleExport('xlsx'),
     });
     return () => unregisterPageHandlers();
-  }, [filtered]);
+  }, [suppliers]);
 
   const load = async () => { const d = await window.api.getSuppliers(); setSuppliers(d.filter(dl => dl.type === 'Regular')); };
   const handleSave = async (e) => { e.preventDefault(); if (editing) await window.api.updateSupplier(editing.id, { ...form, type: 'Regular' }); else await window.api.addSupplier({ ...form, type: 'Regular' }); setShowForm(false); setEditing(null); setForm(emptyForm); load(); toast.success(editing ? 'Supplier updated! — سپلائر اپ ڈیٹ ہو گیا' : 'Supplier added! — سپلائر شامل ہو گیا'); };
