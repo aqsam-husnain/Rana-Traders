@@ -212,7 +212,9 @@ function registerIpcHandlers() {
     const pu = queryAll("SELECT 'Purchase' as type,pu.date,pu.net_amount as amount,sp.name as party_name,sp.name_urdu as party_name_urdu,p.name as product_name,p.name_urdu as product_name_urdu FROM purchases pu LEFT JOIN suppliers sp ON pu.supplier_id=sp.id LEFT JOIN products p ON pu.product_id=p.id WHERE substr(pu.date,1,10)=?", [date]);
     // Standalone payments from the payments table only (no inline amount_paid — avoids double-counting)
     const pa = queryAll("SELECT CASE WHEN type='Received' THEN 'Payment In' ELSE 'Payment Out' END as type,date,amount,CASE WHEN party_type='Buyer' THEN (SELECT name FROM buyers WHERE id=party_id) ELSE (SELECT name FROM suppliers WHERE id=party_id) END as party_name,CASE WHEN party_type='Buyer' THEN (SELECT name_urdu FROM buyers WHERE id=party_id) ELSE (SELECT name_urdu FROM suppliers WHERE id=party_id) END as party_name_urdu,'' as product_name,'' as product_name_urdu FROM payments WHERE substr(date,1,10)=?", [date]);
-    return [...s, ...pu, ...pa];
+    // Expenses — daily kharcha (خرچہ) — always appear in Roznamcha as outflow
+    const ex = queryAll("SELECT 'Expense' as type,e.date,e.amount,e.description as party_name,'' as party_name_urdu,e.category as product_name,'' as product_name_urdu FROM expenses e WHERE substr(e.date,1,10)=?", [date]);
+    return [...s, ...pu, ...pa, ...ex];
   });
 
   // Rokar Khata — Full Cash Book (روکڑ کھاتہ)

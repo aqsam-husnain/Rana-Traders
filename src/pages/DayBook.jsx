@@ -1,25 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { MdChevronLeft, MdChevronRight, MdCalendarToday, MdToday, MdTrendingDown, MdTrendingUp } from 'react-icons/md';
 import { formatPKR, formatDate, todayDateOnly } from '../utils/formatters';
 import { exportDayBookPDF, exportToXLSX, exportToCSV, fileTimestamp } from '../utils/exportReport';
 import ExportDropdown from '../components/ExportDropdown';
+import QuickEntry from '../components/QuickEntry';
 import { useToast } from '../components/Toast';
 import { useShortcuts } from '../context/ShortcutContext';
 
-export default function DayBook() {
+export default function DayBook({ defaultTab = 'roznamcha' }) {
   const [date, setDate] = useState(todayDateOnly());
   const [entries, setEntries] = useState([]);
   const [rokarEntries, setRokarEntries] = useState([]);
   const [rokarCumulative, setRokarCumulative] = useState({ openingBalance: 0, totalIn: 0, totalOut: 0, balance: 0 });
-  const [activeTab, setActiveTab] = useState('roznamcha');
+  const [qeOpen, setQeOpen] = useState(false);
+  const activeTab = defaultTab;
   const toast = useToast();
   const { registerPageHandlers, unregisterPageHandlers } = useShortcuts();
   const dateInputRef = React.useRef(null);
 
-  useEffect(() => {
+  const refreshData = useCallback(() => {
     window.api.getDaybook(date).then(setEntries);
     window.api.getRokar(date).then(setRokarEntries);
-  }, [date]);
+    if (activeTab === 'rokar') {
+      window.api.getRokarCumulative().then(setRokarCumulative);
+    }
+  }, [date, activeTab]);
+
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
 
   // Load cumulative running balance once on mount (and when tab switches to rokar)
   useEffect(() => {
@@ -34,7 +43,7 @@ export default function DayBook() {
       'daybook.prevDay': () => changeDay(-1),
       'daybook.nextDay': () => changeDay(1),
       'daybook.today': () => goToday(),
-      'daybook.tabToggle': () => setActiveTab(t => t === 'roznamcha' ? 'rokar' : 'roznamcha'),
+      'daybook.tabToggle': () => {},
       'page.exportPdf': () => handleExport('pdf'),
       'page.exportXlsx': () => handleExport('xlsx'),
     });
@@ -44,13 +53,14 @@ export default function DayBook() {
   // ── Roznamcha data ──
   const sortedEntries = [...entries].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   const inflowEntries = sortedEntries.filter(e => e.type === 'Sale' || e.type === 'Payment In');
-  const outflowEntries = sortedEntries.filter(e => e.type === 'Purchase' || e.type === 'Payment Out');
+  const outflowEntries = sortedEntries.filter(e => e.type === 'Purchase' || e.type === 'Payment Out' || e.type === 'Expense');
   const totalSale = sortedEntries.filter(e => e.type === 'Sale').reduce((s, e) => s + e.amount, 0);
   const totalPurchase = sortedEntries.filter(e => e.type === 'Purchase').reduce((s, e) => s + e.amount, 0);
   const totalPaymentIn = sortedEntries.filter(e => e.type === 'Payment In').reduce((s, e) => s + e.amount, 0);
   const totalPaymentOut = sortedEntries.filter(e => e.type === 'Payment Out').reduce((s, e) => s + e.amount, 0);
+  const totalExpense = sortedEntries.filter(e => e.type === 'Expense').reduce((s, e) => s + e.amount, 0);
   const totalIn = totalSale + totalPaymentIn;
-  const totalOut = totalPurchase + totalPaymentOut;
+  const totalOut = totalPurchase + totalPaymentOut + totalExpense;
 
   // ── Rokar Khata data ──
   const sortedRokar = [...rokarEntries].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
@@ -218,22 +228,6 @@ export default function DayBook() {
         )}
       </div>
 
-      {/* Tab Toggle */}
-      <div className="tabs" style={{ marginBottom: 16 }}>
-        <button
-          className={`tab ${activeTab === 'roznamcha' ? 'active' : ''}`}
-          onClick={() => setActiveTab('roznamcha')}
-        >
-          📒 Roznamcha — <span className="urdu">روزنامچہ</span>
-        </button>
-        <button
-          className={`tab ${activeTab === 'rokar' ? 'active' : ''}`}
-          onClick={() => setActiveTab('rokar')}
-        >
-          💰 Rokar Khata — <span className="urdu">روکڑ کھاتہ</span>
-        </button>
-      </div>
-
       {/* Professional Date Navigation */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20,
@@ -294,8 +288,13 @@ export default function DayBook() {
         )}
       </div>
 
-      {/* ══ ROZNAMCHA VIEW ══ */}
+      {/* ══ QUICK ENTRY BAR (Roznamcha only) ══ */}
       {activeTab === 'roznamcha' && (
+        <QuickEntry activeTab={activeTab} onEntrySaved={refreshData} onOpenChange={setQeOpen} />
+      )}
+
+      {/* ══ ROZNAMCHA VIEW ══ */}
+      {!qeOpen && activeTab === 'roznamcha' && (
         <>
       {/* Summary Stats — 3 cards */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
@@ -519,6 +518,17 @@ export default function DayBook() {
               </div>
               <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#ff9800' }}>{formatPKR(totalPaymentOut)}</div>
             </div>
+            {totalExpense > 0 && (
+            <div style={{
+              padding: '10px 14px', textAlign: 'center',
+              background: 'rgba(255,152,0,0.04)',
+            }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Expense — <span className="urdu">خرچہ</span>
+              </div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#ff9800' }}>{formatPKR(totalExpense)}</div>
+            </div>
+            )}
           </div>
 
           {/* Outflow Table */}
@@ -612,7 +622,7 @@ export default function DayBook() {
       {/* ═══════════════════════════════════════════════════════
           ROKAR KHATA VIEW — Cash-only T-Account
           ═══════════════════════════════════════════════════════ */}
-      {activeTab === 'rokar' && (
+      {!qeOpen && activeTab === 'rokar' && (
         <div>
           {/* ── Cumulative Running Balance Banner ── */}
           <div style={{

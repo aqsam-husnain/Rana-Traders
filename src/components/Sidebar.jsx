@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { MdDashboard, MdPeople, MdStore, MdInventory, MdPointOfSale, MdShoppingCart, MdMenuBook, MdPercent, MdBarChart, MdSettings, MdLogout, MdWarningAmber, MdAccountBalanceWallet } from 'react-icons/md';
+import { MdDashboard, MdPeople, MdStore, MdInventory, MdPointOfSale, MdShoppingCart, MdMenuBook, MdPercent, MdBarChart, MdSettings, MdLogout, MdWarningAmber, MdAccountBalanceWallet, MdAccountBalance } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import Modal from './Modal';
 import logo from '../assets/logo.png';
@@ -22,7 +22,8 @@ const menuSections = [
     { path: '/purchases', icon: MdShoppingCart, label: 'Purchases', urdu: 'خریداری' },
   ]},
   { title: 'Ledger', items: [
-    { path: '/daybook', icon: MdMenuBook, label: 'Day Book', urdu: 'روزنامچہ' },
+    { path: '/daybook', icon: MdMenuBook, label: 'Roznamcha', urdu: 'روزنامچہ' },
+    { path: '/rokar', icon: MdAccountBalance, label: 'Rokar Khata', urdu: 'روکڑ کھاتہ' },
     { path: '/expenses', icon: MdAccountBalanceWallet, label: 'Expenses', urdu: 'روزانہ خرچہ' },
   ]},
   { title: 'Commission', items: [

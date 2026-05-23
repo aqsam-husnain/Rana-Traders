@@ -41,7 +41,8 @@ export default function App() {
         <Route path="stock" element={<StockOverview />} />
         <Route path="sales" element={<Sales />} />
         <Route path="purchases" element={<Purchases />} />
-        <Route path="daybook" element={<DayBook />} />
+        <Route path="daybook" element={<DayBook defaultTab="roznamcha" />} />
+        <Route path="rokar" element={<DayBook defaultTab="rokar" />} />
         <Route path="commission" element={<Commission />} />
         <Route path="expenses" element={<Expenses />} />
         <Route path="reports" element={<Reports />} />
